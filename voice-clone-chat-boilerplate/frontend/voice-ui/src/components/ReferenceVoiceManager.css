@@ -1,0 +1,133 @@
+.reference-voice-manager {
+  padding: 1rem 0;
+}
+
+.mode-selector {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  justify-content: center;
+}
+
+.mode-button {
+  padding: 0.8rem 1.5rem;
+  border: 2px solid #667eea;
+  background: white;
+  color: #667eea;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 500;
+  transition: all 0.3s;
+}
+
+.mode-button:hover:not(:disabled) {
+  background: #f0f4ff;
+}
+
+.mode-button.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-color: transparent;
+}
+
+.mode-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.record-mode,
+.upload-mode {
+  margin-top: 1.5rem;
+}
+
+.upload-button {
+  padding: 1rem 2rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 50px;
+  cursor: pointer;
+  font-size: 1.1rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 auto;
+  transition: all 0.3s;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.upload-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(102, 126, 234, 0.4);
+}
+
+.upload-button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.upload-icon {
+  font-size: 1.3rem;
+}
+
+.hint {
+  text-align: center;
+  color: #666;
+  font-size: 0.9rem;
+  margin-top: 1rem;
+}
+
+/* Voice Set State */
+.voice-set {
+  text-align: center;
+  padding: 1rem;
+}
+
+.voice-info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  font-size: 1.1rem;
+  color: #4caf50;
+  font-weight: 500;
+}
+
+.check-icon {
+  font-size: 1.5rem;
+}
+
+.reference-audio-player {
+  width: 100%;
+  max-width: 500px;
+  margin: 1rem auto;
+  display: block;
+}
+
+.change-button {
+  padding: 0.8rem 1.5rem;
+  background: #ff9800;
+  color: white;
+  border: none;
+  border-radius: 50px;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 500;
+  transition: all 0.3s;
+  margin-top: 1rem;
+}
+
+.change-button:hover:not(:disabled) {
+  background: #f57c00;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(255, 152, 0, 0.4);
+}
+
+.change-button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+

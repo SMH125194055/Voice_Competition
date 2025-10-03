@@ -68,24 +68,25 @@ def initialize_tts(mode: str, voice_audio_path: Optional[str] = None):
         logger.info("TTS mode set to API")
 
 
-async def text_to_speech(text: str, mode: str) -> str:
+async def text_to_speech(text: str, mode: str, reference_audio_path: Optional[str] = None) -> str:
     """
     Convert text to speech audio.
     
     Args:
         text: Text to synthesize
         mode: "local" or "api"
+        reference_audio_path: Optional path to reference audio for voice cloning
         
     Returns:
         Path to generated audio file
     """
     if mode == "local":
-        return await _tts_local(text)
+        return await _tts_local(text, reference_audio_path)
     else:
         return await _tts_api(text)
 
 
-async def _tts_local(text: str) -> str:
+async def _tts_local(text: str, reference_audio_path: Optional[str] = None) -> str:
     """Generate speech using local ChatterBox model."""
     global chatterbox_model, voice_clone_audio_path
     
@@ -95,11 +96,16 @@ async def _tts_local(text: str) -> str:
     try:
         logger.info(f"Generating speech for text: {text[:100]}...")
         
+        # Use provided reference audio or fall back to global setting
+        ref_audio = reference_audio_path if reference_audio_path else voice_clone_audio_path
+        
         # Generate audio with optional voice cloning
         # Using optimized parameters for faster generation
-        if voice_clone_audio_path and os.path.exists(voice_clone_audio_path):
-            wav = chatterbox_model.generate(text, audio_prompt_path=voice_clone_audio_path)
+        if ref_audio and os.path.exists(ref_audio):
+            logger.info(f"Using reference voice: {ref_audio}")
+            wav = chatterbox_model.generate(text, audio_prompt_path=ref_audio)
         else:
+            logger.info("Using default voice (no reference provided)")
             wav = chatterbox_model.generate(text)
         
         # Save to temporary file

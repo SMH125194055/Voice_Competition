@@ -9,7 +9,7 @@ import tempfile
 import base64
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -173,25 +173,42 @@ async def chat(request: ChatRequest):
 
 # Endpoint 3: Text to speech
 @app.post("/speak")
-async def speak(request: SpeakRequest):
+async def speak(
+    text: str = Form(...),
+    reference_audio: UploadFile = File(None)
+):
     """
     Convert text to speech with cloned voice.
     
     Args:
-        request: Speak request with text
+        text: Text to convert to speech
+        reference_audio: Optional reference audio for voice cloning
         
     Returns:
         Audio file stream
     """
-    audio_path = None
+    temp_ref_audio = None
+    output_audio = None
     
     try:
-        # Generate speech
-        audio_path = await text_to_speech(request.text, MODE)
+        # Save reference audio temporarily if provided
+        ref_audio_path = None
+        if reference_audio:
+            temp_ref_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+            content = await reference_audio.read()
+            temp_ref_audio.write(content)
+            temp_ref_audio.close()
+            ref_audio_path = temp_ref_audio.name
+        else:
+            # Use default from .env if no reference provided
+            ref_audio_path = VOICE_CLONE_AUDIO
+        
+        # Generate speech with specified reference audio
+        output_audio = await text_to_speech(text, MODE, ref_audio_path)
         
         # Return audio file
         return FileResponse(
-            audio_path,
+            output_audio,
             media_type="audio/wav",
             filename="speech.wav",
             headers={"Content-Disposition": "attachment; filename=speech.wav"}
@@ -200,6 +217,14 @@ async def speak(request: SpeakRequest):
     except Exception as e:
         logger.error(f"TTS error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+        
+    finally:
+        # Cleanup temporary reference audio
+        if temp_ref_audio and os.path.exists(temp_ref_audio.name):
+            try:
+                os.unlink(temp_ref_audio.name)
+            except:
+                pass
 
 
 # Endpoint 4: Full voice chat pipeline
