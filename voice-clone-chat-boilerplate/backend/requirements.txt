@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+openai
+python-dotenv
+requests
+python-multipart
+git+https://github.com/openai/whisper.git
+torch
+torchaudio
+numpy
+pydub
+soundfile
+httpx
+
+
