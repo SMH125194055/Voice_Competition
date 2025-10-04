@@ -12,4 +12,9 @@ pydub
 soundfile
 httpx
 
+# TTS Models (install only the ones you need)
+# ChatterBox TTS - already cloned locally in Chatterbox-gitclone/
+# VoxCPM TTS - optional, uncomment to install
+# git+https://github.com/OpenBMB/VoxCPM.git
+
 

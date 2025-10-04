@@ -1,68 +1,74 @@
 """
-Text-to-Speech (TTS) utility using ChatterBox.
-Supports both local model with voice cloning and API mode.
+Text-to-Speech (TTS) utility with support for multiple models.
+Supports local models (ChatterBox, VoxCPM) and API mode.
 """
 
 import os
-import sys
 import logging
 import tempfile
 from typing import Optional
-import torch
 import torchaudio as ta
+
+from .tts_models import TTSModelFactory, TTSModelBase
 
 logger = logging.getLogger(__name__)
 
-# Global ChatterBox model and settings
-chatterbox_model = None
-voice_clone_audio_path = None
-device = None
+# Global TTS model instance
+tts_model: Optional[TTSModelBase] = None
+tts_model_name: Optional[str] = None
+voice_clone_audio_path: Optional[str] = None
 
 
 def initialize_tts(mode: str, voice_audio_path: Optional[str] = None):
     """
-    Initialize TTS based on mode.
+    Initialize TTS based on mode and configuration.
     
     Args:
         mode: "local" or "api"
         voice_audio_path: Path to reference audio for voice cloning (local mode)
     """
-    global chatterbox_model, voice_clone_audio_path, device
+    global tts_model, tts_model_name, voice_clone_audio_path
     
     if mode == "local":
         try:
-            # Add Chatterbox to path
-            chatterbox_path = os.path.join(
-                os.path.dirname(os.path.dirname(__file__)),
-                "Chatterbox-gitclone",
-                "chatterbox",
-                "src"
-            )
-            if chatterbox_path not in sys.path:
-                sys.path.insert(0, chatterbox_path)
-            
-            from chatterbox.tts import ChatterboxTTS
-            
-            # Detect device
-            if torch.cuda.is_available():
-                device = "cuda"
-            elif torch.backends.mps.is_available():
-                device = "mps"
-            else:
-                device = "cpu"
-            
-            logger.info(f"Using device: {device}")
-            logger.info("Loading ChatterBox TTS model...")
-            
-            chatterbox_model = ChatterboxTTS.from_pretrained(device=device)
+            # Get TTS model from environment
+            model_name = os.getenv("TTS_MODEL", "chatterbox").lower()
+            tts_model_name = model_name
             voice_clone_audio_path = voice_audio_path
             
-            logger.info("ChatterBox TTS model loaded successfully")
-            if voice_clone_audio_path:
-                logger.info(f"Voice clone audio: {voice_clone_audio_path}")
+            logger.info(f"Initializing TTS with model: {model_name}")
+            
+            # Prepare model-specific parameters
+            model_kwargs = {}
+            
+            if model_name == "voxcpm":
+                # Load VoxCPM-specific parameters from environment
+                model_kwargs = {
+                    "model_path": os.getenv("VOXCPM_MODEL_PATH", "VoxCPM-0.5B"),
+                    "cfg_value": float(os.getenv("VOXCPM_CFG_VALUE", "2.0")),
+                    "inference_timesteps": int(os.getenv("VOXCPM_INFERENCE_TIMESTEPS", "10")),
+                    "normalize": os.getenv("VOXCPM_NORMALIZE", "true").lower() == "true",
+                    "denoise": os.getenv("VOXCPM_DENOISE", "true").lower() == "true",
+                    "retry_badcase": os.getenv("VOXCPM_RETRY_BADCASE", "true").lower() == "true"
+                }
+                logger.info(f"VoxCPM parameters: {model_kwargs}")
+            
+            # Create model instance using factory
+            tts_model = TTSModelFactory.create_model(
+                model_name,
+                voice_audio_path=voice_audio_path,
+                **model_kwargs
+            )
+            
+            # Load the model
+            tts_model.load_model()
+            
+            logger.info(f"TTS model '{model_name}' initialized successfully")
+            if voice_audio_path:
+                logger.info(f"Voice clone audio: {voice_audio_path}")
                 
         except Exception as e:
-            logger.error(f"Failed to load ChatterBox model: {e}")
+            logger.error(f"Failed to initialize TTS model: {e}")
             raise
     else:
         logger.info("TTS mode set to API")
@@ -87,11 +93,11 @@ async def text_to_speech(text: str, mode: str, reference_audio_path: Optional[st
 
 
 async def _tts_local(text: str, reference_audio_path: Optional[str] = None) -> str:
-    """Generate speech using local ChatterBox model."""
-    global chatterbox_model, voice_clone_audio_path
+    """Generate speech using local TTS model."""
+    global tts_model, voice_clone_audio_path
     
-    if chatterbox_model is None:
-        raise RuntimeError("ChatterBox model not initialized. Call initialize_tts first.")
+    if tts_model is None:
+        raise RuntimeError("TTS model not initialized. Call initialize_tts first.")
     
     try:
         logger.info(f"Generating speech for text: {text[:100]}...")
@@ -99,21 +105,20 @@ async def _tts_local(text: str, reference_audio_path: Optional[str] = None) -> s
         # Use provided reference audio or fall back to global setting
         ref_audio = reference_audio_path if reference_audio_path else voice_clone_audio_path
         
-        # Generate audio with optional voice cloning
-        # Using optimized parameters for faster generation
-        if ref_audio and os.path.exists(ref_audio):
-            logger.info(f"Using reference voice: {ref_audio}")
-            wav = chatterbox_model.generate(text, audio_prompt_path=ref_audio)
-        else:
-            logger.info("Using default voice (no reference provided)")
-            wav = chatterbox_model.generate(text)
+        # Create output directory if it doesn't exist
+        output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "audio", "generated")
+        os.makedirs(output_dir, exist_ok=True)
         
-        # Save to temporary file
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-        output_path = temp_file.name
-        temp_file.close()
+        # Generate unique filename based on timestamp
+        import time
+        timestamp = int(time.time() * 1000)
+        output_path = os.path.join(output_dir, f"voice_{timestamp}.wav")
         
-        ta.save(output_path, wav, chatterbox_model.sr)
+        # Generate audio using the model
+        wav, sample_rate = tts_model.generate(text, ref_audio)
+        
+        # Save audio to file
+        ta.save(output_path, wav, sample_rate)
         logger.info(f"Audio saved to: {output_path}")
         
         return output_path
@@ -143,10 +148,14 @@ async def _tts_api(text: str) -> str:
             input=text
         )
         
-        # Save to temporary file
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-        output_path = temp_file.name
-        temp_file.close()
+        # Create output directory if it doesn't exist
+        output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "audio", "generated")
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Generate unique filename
+        import time
+        timestamp = int(time.time() * 1000)
+        output_path = os.path.join(output_dir, f"voice_{timestamp}.mp3")
         
         response.stream_to_file(output_path)
         logger.info(f"Audio saved to: {output_path}")
@@ -158,3 +167,29 @@ async def _tts_api(text: str) -> str:
         raise
 
 
+def get_current_model_info() -> dict:
+    """
+    Get information about the currently loaded TTS model.
+    
+    Returns:
+        Dictionary with model information
+    """
+    global tts_model, tts_model_name
+    
+    if tts_model is None:
+        return {
+            "model": "none",
+            "status": "not_initialized"
+        }
+    
+    return {
+        "model": tts_model_name,
+        "device": tts_model.device,
+        "sample_rate": tts_model.get_sample_rate(),
+        "status": "ready"
+    }
+
+
+def list_available_models() -> list:
+    """List all available TTS models."""
+    return TTSModelFactory.list_models()

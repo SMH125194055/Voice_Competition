@@ -14,7 +14,8 @@ const AudioRecorder = ({ onRecordingComplete, disabled, buttonText = "Record Aud
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       
-      mediaRecorderRef.current = new MediaRecorder(stream);
+      const options = { mimeType: 'audio/webm' };
+      mediaRecorderRef.current = new MediaRecorder(stream, options);
       audioChunksRef.current = [];
 
       mediaRecorderRef.current.ondataavailable = (event) => {
@@ -22,7 +23,9 @@ const AudioRecorder = ({ onRecordingComplete, disabled, buttonText = "Record Aud
       };
 
       mediaRecorderRef.current.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+        // Use the actual MIME type from the recorder
+        const mimeType = mediaRecorderRef.current.mimeType || 'audio/webm';
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
         const url = URL.createObjectURL(audioBlob);
         setAudioURL(url);
         

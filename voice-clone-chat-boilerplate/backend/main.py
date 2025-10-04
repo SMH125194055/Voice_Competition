@@ -9,7 +9,7 @@ import tempfile
 import base64
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -20,7 +20,9 @@ from utils import (
     initialize_tts,
     transcribe_audio,
     chat_with_llm,
-    text_to_speech
+    text_to_speech,
+    get_current_model_info,
+    list_available_models
 )
 
 # Configure logging
@@ -103,10 +105,14 @@ class TranscribeResponse(BaseModel):
 # Root endpoint
 @app.get("/")
 async def root():
-    """Health check endpoint."""
+    """Health check endpoint with model information."""
+    model_info = get_current_model_info()
     return {
         "status": "running",
         "mode": MODE,
+        "tts_model": model_info.get("model", "unknown"),
+        "tts_device": model_info.get("device", "unknown"),
+        "available_tts_models": list_available_models(),
         "endpoints": ["/transcribe", "/chat", "/speak", "/chat-voice"]
     }
 
@@ -118,7 +124,7 @@ async def transcribe(audio: UploadFile = File(...)):
     Transcribe audio file to text using Whisper.
     
     Args:
-        audio: Audio file (WAV, MP3, etc.)
+        audio: Audio file (WAV, MP3, WebM, etc.)
         
     Returns:
         Transcribed text
@@ -126,11 +132,30 @@ async def transcribe(audio: UploadFile = File(...)):
     temp_audio = None
     
     try:
+        # Detect file extension from content type or filename
+        file_ext = ".webm"  # Default to webm
+        if audio.content_type:
+            logger.info(f"Received audio with content type: {audio.content_type}")
+            if "wav" in audio.content_type or "wave" in audio.content_type:
+                file_ext = ".wav"
+            elif "mp3" in audio.content_type:
+                file_ext = ".mp3"
+            elif "webm" in audio.content_type:
+                file_ext = ".webm"
+        
         # Save uploaded file temporarily
-        temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
         content = await audio.read()
+        logger.info(f"Received {len(content)} bytes of audio data")
+        
+        if len(content) == 0:
+            raise HTTPException(status_code=400, detail="Received empty audio file")
+        
         temp_audio.write(content)
+        temp_audio.flush()  # Ensure data is written to disk
         temp_audio.close()
+        
+        logger.info(f"Saved audio to: {temp_audio.name}")
         
         # Transcribe
         text = await transcribe_audio(temp_audio.name, MODE)
@@ -174,6 +199,7 @@ async def chat(request: ChatRequest):
 # Endpoint 3: Text to speech
 @app.post("/speak")
 async def speak(
+    background_tasks: BackgroundTasks,
     text: str = Form(...),
     reference_audio: UploadFile = File(None)
 ):
@@ -205,6 +231,19 @@ async def speak(
         
         # Generate speech with specified reference audio
         output_audio = await text_to_speech(text, MODE, ref_audio_path)
+        
+        # Schedule cleanup of generated audio after response is sent
+        async def cleanup_file():
+            try:
+                import asyncio
+                await asyncio.sleep(2)  # Wait for file to be sent
+                if output_audio and os.path.exists(output_audio):
+                    os.unlink(output_audio)
+                    logger.info(f"Cleaned up: {output_audio}")
+            except Exception as e:
+                logger.warning(f"Cleanup failed: {e}")
+        
+        background_tasks.add_task(cleanup_file)
         
         # Return audio file
         return FileResponse(
@@ -247,12 +286,30 @@ async def chat_voice(audio: UploadFile = File(...)):
     output_audio = None
     
     try:
+        # Detect file extension from content type
+        file_ext = ".webm"  # Default to webm
+        if audio.content_type:
+            logger.info(f"Received audio with content type: {audio.content_type}")
+            if "wav" in audio.content_type or "wave" in audio.content_type:
+                file_ext = ".wav"
+            elif "mp3" in audio.content_type:
+                file_ext = ".mp3"
+            elif "webm" in audio.content_type:
+                file_ext = ".webm"
+        
         # Step 1: Transcribe user audio
-        temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
         content = await audio.read()
+        logger.info(f"Received {len(content)} bytes of audio data")
+        
+        if len(content) == 0:
+            raise HTTPException(status_code=400, detail="Received empty audio file")
+        
         temp_audio.write(content)
+        temp_audio.flush()  # Ensure data is written to disk
         temp_audio.close()
         
+        logger.info(f"Saved audio to: {temp_audio.name}")
         logger.info("Step 1: Transcribing user audio...")
         user_text = await transcribe_audio(temp_audio.name, MODE)
         logger.info(f"User said: {user_text}")

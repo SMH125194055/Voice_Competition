@@ -36,6 +36,9 @@ test_chat_voice_output.wav
 !audio/*.wav
 !audio/*.mp3
 
+# Generated audio files
+audio/generated/
+
 # Model cache
 .cache/
 models/
