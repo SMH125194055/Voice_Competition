@@ -52,6 +52,17 @@ def initialize_tts(mode: str, voice_audio_path: Optional[str] = None):
                     "retry_badcase": os.getenv("VOXCPM_RETRY_BADCASE", "true").lower() == "true"
                 }
                 logger.info(f"VoxCPM parameters: {model_kwargs}")
+            elif model_name == "rvc":
+                # Load RVC-specific parameters from environment
+                model_kwargs = {
+                    "base_tts": os.getenv("RVC_BASE_TTS", "piper"),
+                    "pitch_shift": int(os.getenv("RVC_PITCH_SHIFT", "0")),
+                    "index_rate": float(os.getenv("RVC_INDEX_RATE", "0.5")),
+                    "filter_radius": int(os.getenv("RVC_FILTER_RADIUS", "3")),
+                    "rms_mix_rate": float(os.getenv("RVC_RMS_MIX_RATE", "0.25")),
+                    "protect_rate": float(os.getenv("RVC_PROTECT_RATE", "0.33"))
+                }
+                logger.info(f"RVC parameters: {model_kwargs}")
             
             # Create model instance using factory
             tts_model = TTSModelFactory.create_model(

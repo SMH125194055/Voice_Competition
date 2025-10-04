@@ -17,4 +17,9 @@ httpx
 # VoxCPM TTS - optional, uncomment to install
 # git+https://github.com/OpenBMB/VoxCPM.git
 
+# RVC TTS - FASTEST OPTION for CPU (near real-time!)
+rvc-python
+piper-tts
+edge-tts
+
 

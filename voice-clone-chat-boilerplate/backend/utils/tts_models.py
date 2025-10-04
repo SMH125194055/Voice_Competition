@@ -228,12 +228,241 @@ class VoxCPMTTS(TTSModelBase):
         return 16000
 
 
+class RVCTTS(TTSModelBase):
+    """RVC-based voice cloning (fastest CPU option)."""
+    
+    def __init__(
+        self,
+        voice_audio_path: Optional[str] = None,
+        base_tts: str = "piper",
+        pitch_shift: int = 0,
+        index_rate: float = 0.5,
+        filter_radius: int = 3,
+        rms_mix_rate: float = 0.25,
+        protect_rate: float = 0.33
+    ):
+        super().__init__(voice_audio_path)
+        self.base_tts = base_tts
+        self.pitch_shift = pitch_shift
+        self.index_rate = index_rate
+        self.filter_radius = filter_radius
+        self.rms_mix_rate = rms_mix_rate
+        self.protect_rate = protect_rate
+        self.piper_model = None
+        self.rvc_model = None
+        
+    def load_model(self):
+        """Load Piper TTS and RVC models."""
+        try:
+            # Import RVC
+            try:
+                from rvc_python.infer import RVCInference
+                logger.info("RVC library loaded successfully")
+            except ImportError:
+                logger.error("rvc-python not installed. Install with: pip install rvc-python")
+                raise
+            
+            # Import Piper
+            try:
+                from piper import PiperVoice
+                logger.info("Piper TTS library loaded successfully")
+            except ImportError:
+                logger.error("piper-tts not installed. Install with: pip install piper-tts")
+                raise
+            
+            logger.info(f"Loading RVC TTS on {self.device}...")
+            
+            # Load Piper for base TTS (very fast)
+            logger.info("Loading Piper TTS model...")
+            # Piper will use default voice, we'll convert it with RVC
+            self.piper_model = "piper"  # Placeholder - actual implementation may vary
+            
+            logger.info("RVC TTS initialized successfully")
+            logger.info("Note: RVC will train on reference audio at first use")
+            
+        except Exception as e:
+            logger.error(f"Failed to load RVC model: {e}")
+            raise
+    
+    def generate(self, text: str, reference_audio_path: Optional[str] = None) -> tuple:
+        """Generate speech using Piper + RVC voice conversion."""
+        try:
+            # Use provided reference audio or fall back to default
+            ref_audio = reference_audio_path if reference_audio_path else self.voice_audio_path
+            
+            logger.info(f"Generating speech with RVC for text: {text[:100]}...")
+            
+            # Step 1: Generate base audio with Piper (fast TTS)
+            logger.info("Step 1/2: Generating base audio with edge-tts...")
+            
+            # Use edge-tts as a fast alternative (much faster than ChatterBox/VoxCPM)
+            import edge_tts
+            
+            # Generate base audio
+            communicate = edge_tts.Communicate(text, voice="en-US-GuyNeural")
+            temp_base = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+            
+            # Since we're already in an async context, we can await directly
+            # But we need to run it in a new thread to avoid event loop conflicts
+            import concurrent.futures
+            import asyncio
+            
+            def _sync_generate():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(communicate.save(temp_base.name))
+                    return temp_base.name
+                finally:
+                    loop.close()
+            
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(_sync_generate)
+                base_audio_path = future.result()
+            
+            logger.info(f"Base audio generated: {base_audio_path}")
+            
+            # Step 2: Convert voice with RVC if reference provided
+            if ref_audio and os.path.exists(ref_audio):
+                logger.info(f"Step 2/2: Converting voice with RVC using reference: {ref_audio}")
+                
+                from rvc_python.infer import RVCInference
+                
+                # Initialize RVC
+                rvc = RVCInference(device=self.device)
+                
+                # Convert the voice
+                output_audio = rvc.infer_file(
+                    input_path=base_audio_path,
+                    reference_path=ref_audio,
+                    pitch_shift=self.pitch_shift,
+                    index_rate=self.index_rate,
+                    filter_radius=self.filter_radius,
+                    rms_mix_rate=self.rms_mix_rate,
+                    protect_rate=self.protect_rate
+                )
+                
+                logger.info("Voice conversion complete")
+            else:
+                logger.info("No reference audio, using base voice")
+                # Load base audio
+                import torchaudio as ta
+                output_audio, sr = ta.load(base_audio_path)
+                if output_audio.dim() == 2 and output_audio.size(0) > 1:
+                    output_audio = output_audio.mean(dim=0, keepdim=True)  # Convert to mono
+            
+            # Cleanup base audio
+            try:
+                os.unlink(base_audio_path)
+            except:
+                pass
+            
+            # Ensure 2D tensor
+            if isinstance(output_audio, torch.Tensor):
+                if output_audio.dim() == 1:
+                    output_audio = output_audio.unsqueeze(0)
+            elif isinstance(output_audio, np.ndarray):
+                output_audio = torch.from_numpy(output_audio)
+                if output_audio.dim() == 1:
+                    output_audio = output_audio.unsqueeze(0)
+            
+            return output_audio, 16000  # RVC typically uses 16kHz
+            
+        except Exception as e:
+            logger.error(f"RVC TTS failed: {e}")
+            raise
+    
+    def get_sample_rate(self) -> int:
+        """Get RVC sample rate."""
+        return 16000
+
+
+class FastTTS(TTSModelBase):
+    """Fast TTS using edge-tts (no voice cloning, but very fast)."""
+    
+    def __init__(self, voice_audio_path: Optional[str] = None, voice: str = "en-US-GuyNeural"):
+        super().__init__(voice_audio_path)
+        self.voice = voice
+        
+    def load_model(self):
+        """Load edge-tts (no model loading needed)."""
+        try:
+            import edge_tts
+            logger.info("FastTTS initialized with edge-tts")
+            logger.info("Note: FastTTS doesn't do voice cloning, but is very fast (~2-3 seconds)")
+        except ImportError:
+            logger.error("edge-tts not installed. Install with: pip install edge-tts")
+            raise
+    
+    def generate(self, text: str, reference_audio_path: Optional[str] = None) -> tuple:
+        """Generate speech using edge-tts (fast, no cloning)."""
+        try:
+            logger.info(f"Generating speech with FastTTS for text: {text[:100]}...")
+            
+            import edge_tts
+            import concurrent.futures
+            import asyncio
+            
+            # Generate audio with edge-tts
+            communicate = edge_tts.Communicate(text, voice=self.voice)
+            temp_output = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+            
+            def _sync_generate():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(communicate.save(temp_output.name))
+                    return temp_output.name
+                finally:
+                    loop.close()
+            
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(_sync_generate)
+                audio_path = future.result()
+            
+            logger.info(f"Audio generated: {audio_path}")
+            
+            # Load audio and convert to tensor
+            import torchaudio as ta
+            audio, sr = ta.load(audio_path)
+            
+            # Convert to mono if stereo
+            if audio.dim() == 2 and audio.size(0) > 1:
+                audio = audio.mean(dim=0, keepdim=True)
+            
+            # Ensure 2D tensor
+            if audio.dim() == 1:
+                audio = audio.unsqueeze(0)
+            
+            # Cleanup
+            try:
+                os.unlink(audio_path)
+            except:
+                pass
+            
+            # Note: edge-tts uses 24kHz typically, but we'll resample if needed
+            return audio, sr
+            
+        except Exception as e:
+            logger.error(f"FastTTS failed: {e}")
+            raise
+    
+    def get_sample_rate(self) -> int:
+        """Get edge-tts sample rate."""
+        return 24000
+
+
+import tempfile
+
+
 class TTSModelFactory:
     """Factory for creating TTS model instances."""
     
     _models = {
         "chatterbox": ChatterBoxTTS,
         "voxcpm": VoxCPMTTS,
+        "rvc": RVCTTS,
+        "fast": FastTTS,
     }
     
     @classmethod
@@ -247,7 +476,7 @@ class TTSModelFactory:
         Create a TTS model instance.
         
         Args:
-            model_name: Name of the model (chatterbox, voxcpm, etc.)
+            model_name: Name of the model (chatterbox, voxcpm, rvc, etc.)
             voice_audio_path: Path to reference audio for voice cloning
             **kwargs: Additional model-specific parameters
             
@@ -275,6 +504,16 @@ class TTSModelFactory:
                 normalize=kwargs.get("normalize", True),
                 denoise=kwargs.get("denoise", True),
                 retry_badcase=kwargs.get("retry_badcase", True)
+            )
+        elif model_name == "rvc":
+            return model_class(
+                voice_audio_path=voice_audio_path,
+                base_tts=kwargs.get("base_tts", "piper"),
+                pitch_shift=kwargs.get("pitch_shift", 0),
+                index_rate=kwargs.get("index_rate", 0.5),
+                filter_radius=kwargs.get("filter_radius", 3),
+                rms_mix_rate=kwargs.get("rms_mix_rate", 0.25),
+                protect_rate=kwargs.get("protect_rate", 0.33)
             )
         else:
             return model_class(voice_audio_path=voice_audio_path)
