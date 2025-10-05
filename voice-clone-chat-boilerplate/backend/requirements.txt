@@ -17,7 +17,10 @@ httpx
 # VoxCPM TTS - optional, uncomment to install
 # git+https://github.com/OpenBMB/VoxCPM.git
 
-# RVC TTS - FASTEST OPTION for CPU (near real-time!)
+# Coqui XTTS - RECOMMENDED! Fast voice cloning (10-30 sec on CPU)
+TTS>=0.22.0
+
+# RVC TTS - Has dependency issues
 rvc-python
 piper-tts
 edge-tts

@@ -377,6 +377,81 @@ class RVCTTS(TTSModelBase):
         return 16000
 
 
+class CoquiXTTS(TTSModelBase):
+    """Coqui XTTS - Fast voice cloning with good quality."""
+    
+    def __init__(self, voice_audio_path: Optional[str] = None, language: str = "en"):
+        super().__init__(voice_audio_path)
+        self.language = language
+        self.model = None
+        
+    def load_model(self):
+        """Load Coqui XTTS model."""
+        try:
+            from TTS.api import TTS
+            logger.info(f"Loading Coqui XTTS model on {self.device}...")
+            
+            # Use XTTS v2 - fast and good quality
+            self.model = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(self.device)
+            
+            logger.info("Coqui XTTS model loaded successfully")
+            logger.info("XTTS supports voice cloning with reference audio")
+            
+        except ImportError:
+            logger.error("Coqui TTS not installed. Install with: pip install TTS")
+            raise
+        except Exception as e:
+            logger.error(f"Failed to load Coqui XTTS model: {e}")
+            raise
+    
+    def generate(self, text: str, reference_audio_path: Optional[str] = None) -> tuple:
+        """Generate speech using Coqui XTTS with voice cloning."""
+        if self.model is None:
+            raise RuntimeError("Coqui XTTS model not initialized. Call load_model first.")
+        
+        try:
+            # Use provided reference audio or fall back to default
+            ref_audio = reference_audio_path if reference_audio_path else self.voice_audio_path
+            
+            logger.info(f"Generating speech with Coqui XTTS for text: {text[:100]}...")
+            
+            if ref_audio and os.path.exists(ref_audio):
+                logger.info(f"Using reference voice: {ref_audio}")
+                
+                # Generate with voice cloning
+                wav = self.model.tts(
+                    text=text,
+                    speaker_wav=ref_audio,
+                    language=self.language
+                )
+            else:
+                logger.info("No reference audio, using default voice")
+                wav = self.model.tts(text=text, language=self.language)
+            
+            # Convert to tensor
+            if isinstance(wav, list):
+                wav = np.array(wav, dtype=np.float32)
+            
+            if isinstance(wav, np.ndarray):
+                wav = torch.from_numpy(wav)
+            
+            # Ensure 2D tensor
+            if wav.dim() == 1:
+                wav = wav.unsqueeze(0)
+            
+            logger.info(f"Audio generated with shape: {wav.shape}")
+            
+            return wav, 22050  # XTTS uses 22.05kHz
+            
+        except Exception as e:
+            logger.error(f"Coqui XTTS failed: {e}")
+            raise
+    
+    def get_sample_rate(self) -> int:
+        """Get Coqui XTTS sample rate."""
+        return 22050
+
+
 class FastTTS(TTSModelBase):
     """Fast TTS using edge-tts (no voice cloning, but very fast)."""
     
@@ -463,6 +538,7 @@ class TTSModelFactory:
         "voxcpm": VoxCPMTTS,
         "rvc": RVCTTS,
         "fast": FastTTS,
+        "xtts": CoquiXTTS,
     }
     
     @classmethod

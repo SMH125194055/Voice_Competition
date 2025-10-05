@@ -52,6 +52,12 @@ def initialize_tts(mode: str, voice_audio_path: Optional[str] = None):
                     "retry_badcase": os.getenv("VOXCPM_RETRY_BADCASE", "true").lower() == "true"
                 }
                 logger.info(f"VoxCPM parameters: {model_kwargs}")
+            elif model_name == "xtts":
+                # Load Coqui XTTS parameters
+                model_kwargs = {
+                    "language": os.getenv("XTTS_LANGUAGE", "en")
+                }
+                logger.info(f"Coqui XTTS parameters: {model_kwargs}")
             elif model_name == "rvc":
                 # Load RVC-specific parameters from environment
                 model_kwargs = {
