@@ -5,378 +5,435 @@ import './RealTimeVoiceAgent.css';
 const API_BASE_URL = 'http://localhost:8000';
 
 const RealTimeVoiceAgent = () => {
+  // State management
   const [isListening, setIsListening] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [transcript, setTranscript] = useState('');
-  const [aiResponse, setAiResponse] = useState('');
-  const [status, setStatus] = useState('Ready');
-  const [referenceVoice, setReferenceVoice] = useState(null);
-  const [hasReferenceVoice, setHasReferenceVoice] = useState(false);
-  const [recordingDuration, setRecordingDuration] = useState(0);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [transcription, setTranscription] = useState('');
+  const [currentResponse, setCurrentResponse] = useState('');
+  const [messages, setMessages] = useState([]);
+  const [audioLevel, setAudioLevel] = useState(0);
+  const [status, setStatus] = useState('Ready to listen...');
+  const [vadActive, setVadActive] = useState(false);
   
+  // Refs
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
-  const audioQueueRef = useRef([]);
-  const isPlayingRef = useRef(false);
+  const audioContextRef = useRef(null);
+  const analyserRef = useRef(null);
+  const micStreamRef = useRef(null);
+  const audioRef = useRef(null);
+  const vadTimeoutRef = useRef(null);
+  const silenceTimeoutRef = useRef(null);
   const recordingStartTimeRef = useRef(null);
-  const recordingStreamRef = useRef(null);
-  const recordingTimerRef = useRef(null);
-
-  // Initialize reference voice from localStorage
+  
+  // VAD Configuration
+  const SILENCE_THRESHOLD = 30; // Audio level threshold for silence
+  const SILENCE_DURATION = 1500; // ms of silence before stopping
+  const MIN_RECORDING_DURATION = 1000; // Minimum recording duration
+  const SPEECH_THRESHOLD = 40; // Audio level threshold for speech detection
+  
+  // Initialize audio context for VAD
   useEffect(() => {
-    const saved = localStorage.getItem('referenceVoiceBlob');
-    if (saved) {
-      // Convert base64 back to blob
-      fetch(saved).then(res => res.blob()).then(blob => {
-        setReferenceVoice(blob);
-        setHasReferenceVoice(true);
-      });
-    }
-  }, []);
-
-  // Audio queue player
-  const playNextInQueue = async () => {
-    if (isPlayingRef.current || audioQueueRef.current.length === 0) {
-      return;
-    }
-
-    isPlayingRef.current = true;
-    setIsSpeaking(true);
-
-    const audioBlob = audioQueueRef.current.shift();
-    const audioUrl = URL.createObjectURL(audioBlob);
-    const audio = new Audio(audioUrl);
-
-    audio.onended = () => {
-      URL.revokeObjectURL(audioUrl);
-      isPlayingRef.current = false;
-      
-      // Play next chunk if available
-      if (audioQueueRef.current.length > 0) {
-        playNextInQueue();
-      } else {
-        setIsSpeaking(false);
-        setStatus('Ready');
+    audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    return () => {
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
       }
     };
-
-    audio.onerror = () => {
-      URL.revokeObjectURL(audioUrl);
-      isPlayingRef.current = false;
-      setIsSpeaking(false);
-      playNextInQueue(); // Try next chunk
-    };
-
-    await audio.play();
+  }, []);
+  
+  // Audio level monitoring for VAD
+  const monitorAudioLevel = () => {
+    if (!analyserRef.current) return;
+    
+    const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
+    analyserRef.current.getByteFrequencyData(dataArray);
+    
+    // Calculate average audio level
+    const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+    setAudioLevel(average);
+    
+    // Voice Activity Detection
+    if (isListening && !isProcessing) {
+      if (average > SPEECH_THRESHOLD) {
+        // Speech detected
+        setVadActive(true);
+        setStatus('Listening...');
+        
+        // Clear silence timeout
+        if (silenceTimeoutRef.current) {
+          clearTimeout(silenceTimeoutRef.current);
+          silenceTimeoutRef.current = null;
+        }
+      } else if (average < SILENCE_THRESHOLD) {
+        // Silence detected
+        if (vadActive && recordingStartTimeRef.current) {
+          const recordingDuration = Date.now() - recordingStartTimeRef.current;
+          
+          // Only stop if we've been recording long enough and have silence
+          if (recordingDuration > MIN_RECORDING_DURATION) {
+            if (!silenceTimeoutRef.current) {
+              silenceTimeoutRef.current = setTimeout(() => {
+                console.log('Silence detected, stopping recording...');
+                stopListening();
+              }, SILENCE_DURATION);
+            }
+          }
+        }
+        setStatus('Speak now...');
+      }
+    }
+    
+    // Continue monitoring
+    if (isListening) {
+      requestAnimationFrame(monitorAudioLevel);
+    }
   };
-
-  // Add audio to queue and start playing
-  const queueAudio = (audioBlob) => {
-    audioQueueRef.current.push(audioBlob);
-    playNextInQueue();
-  };
-
-  // Start recording
+  
+  // Start listening
   const startListening = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      recordingStreamRef.current = stream;
-      recordingStartTimeRef.current = Date.now();
-      setRecordingDuration(0);
+      setStatus('Starting microphone...');
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        } 
+      });
       
-      // Update recording duration display every 100ms
-      recordingTimerRef.current = setInterval(() => {
-        const elapsed = (Date.now() - recordingStartTimeRef.current) / 1000;
-        setRecordingDuration(elapsed);
-      }, 100);
+      micStreamRef.current = stream;
       
-      // Try to use audio/webm for better browser compatibility
-      const options = { mimeType: 'audio/webm' };
-      mediaRecorderRef.current = new MediaRecorder(stream, options);
+      // Setup audio analysis for VAD
+      const audioContext = audioContextRef.current;
+      const source = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+      analyser.smoothingTimeConstant = 0.8;
+      source.connect(analyser);
+      analyserRef.current = analyser;
+      
+      // Setup MediaRecorder
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : 'audio/webm';
+      
+      const mediaRecorder = new MediaRecorder(stream, { 
+        mimeType,
+        audioBitsPerSecond: 128000
+      });
+      
+      mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
-
-      mediaRecorderRef.current.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          console.log(`Received chunk: ${event.data.size} bytes`);
+      
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
           audioChunksRef.current.push(event.data);
         }
       };
-
-      mediaRecorderRef.current.onstop = async () => {
-        // Clear the recording timer
-        if (recordingTimerRef.current) {
-          clearInterval(recordingTimerRef.current);
-          recordingTimerRef.current = null;
-        }
-        
-        // Check minimum recording duration
-        const recordingDuration = Date.now() - recordingStartTimeRef.current;
-        
-        // Increased minimum to 1000ms (1 second) for valid WebM
-        if (recordingDuration < 1000) {
-          setStatus('⚠️ Too short! Hold for at least 1.5 seconds');
-          stream.getTracks().forEach(track => track.stop());
-          setTimeout(() => setStatus('Ready'), 2500);
-          setRecordingDuration(0);
-          return;
-        }
-        
-        // Use the actual MIME type from the recorder
-        const mimeType = mediaRecorderRef.current.mimeType || 'audio/webm';
-        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
-        
-        console.log(`Recording complete: ${recordingDuration}ms, Blob size: ${audioBlob.size} bytes, Chunks: ${audioChunksRef.current.length}`);
-        
-        // Increased minimum size to 2000 bytes for valid WebM
-        if (audioBlob.size < 2000) {
-          setStatus('⚠️ Recording failed - no audio captured. Check microphone!');
-          stream.getTracks().forEach(track => track.stop());
-          setTimeout(() => setStatus('Ready'), 3000);
-          setRecordingDuration(0);
-          return;
-        }
-        
-        stream.getTracks().forEach(track => track.stop());
-        setRecordingDuration(0);
-        
-        // Process the recorded audio
-        await processVoiceInput(audioBlob);
+      
+      mediaRecorder.onstop = async () => {
+        console.log('MediaRecorder stopped, processing audio...');
+        await processRecording();
       };
-
-      // Request data every 100ms to ensure we capture audio chunks
-      mediaRecorderRef.current.start(100);
+      
+      mediaRecorder.start(100); // Request data every 100ms
+      recordingStartTimeRef.current = Date.now();
       setIsListening(true);
-      setStatus('🎤 Recording...');
+      setVadActive(false);
+      setStatus('Speak now...');
+      
+      // Start audio level monitoring
+      monitorAudioLevel();
+      
     } catch (error) {
-      console.error('Microphone error:', error);
-      alert('Could not access microphone. Please check permissions.');
+      console.error('Error starting microphone:', error);
+      setStatus('Microphone access denied');
     }
   };
-
-  // Stop recording
+  
+  // Stop listening
   const stopListening = () => {
-    if (mediaRecorderRef.current && isListening) {
-      // Clear the timer
-      if (recordingTimerRef.current) {
-        clearInterval(recordingTimerRef.current);
-        recordingTimerRef.current = null;
-      }
-      
-      // Check if recording duration is sufficient
-      const recordingDuration = Date.now() - recordingStartTimeRef.current;
-      
-      // Increased minimum to 1000ms (1 second)
-      if (recordingDuration < 1000) {
-        // Too short, cancel the recording
-        if (mediaRecorderRef.current.state !== 'inactive') {
-          mediaRecorderRef.current.stop();
-        }
-        if (recordingStreamRef.current) {
-          recordingStreamRef.current.getTracks().forEach(track => track.stop());
-        }
-        setIsListening(false);
-        setRecordingDuration(0);
-        setStatus('⚠️ Hold button for at least 1.5 seconds!');
-        setTimeout(() => setStatus('Ready'), 2500);
-        return;
-      }
-      
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      console.log('Stopping MediaRecorder...');
       mediaRecorderRef.current.stop();
-      setIsListening(false);
     }
+    
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach(track => track.stop());
+      micStreamRef.current = null;
+    }
+    
+    if (silenceTimeoutRef.current) {
+      clearTimeout(silenceTimeoutRef.current);
+      silenceTimeoutRef.current = null;
+    }
+    
+    setIsListening(false);
+    setVadActive(false);
+    setAudioLevel(0);
+    setStatus('Processing...');
   };
-
-  // Process voice input through full pipeline
-  const processVoiceInput = async (audioBlob) => {
-    if (!hasReferenceVoice) {
-      alert('Please set up your voice first!');
-      setStatus('Ready');
+  
+  // Process recorded audio
+  const processRecording = async () => {
+    const recordingDuration = Date.now() - recordingStartTimeRef.current;
+    console.log(`Recording duration: ${recordingDuration}ms`);
+    
+    if (audioChunksRef.current.length === 0) {
+      console.log('No audio chunks recorded');
+      setStatus('No audio detected');
+      setTimeout(() => setStatus('Ready to listen...'), 2000);
       return;
     }
-
+    
+    const mimeType = mediaRecorderRef.current?.mimeType || 'audio/webm';
+    const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+    console.log(`Audio blob created: ${audioBlob.size} bytes, type: ${audioBlob.type}`);
+    
+    // Check minimum size
+    if (audioBlob.size < 2000) {
+      console.log('Audio too short');
+      setStatus('Recording too short, try again');
+      setTimeout(() => setStatus('Ready to listen...'), 2000);
+      return;
+    }
+    
     setIsProcessing(true);
-    setTranscript('');
-    setAiResponse('');
-
+    setStatus('Transcribing...');
+    
     try {
-      // Step 1: Transcribe
-      setStatus('Understanding...');
+      // Step 1: Transcribe audio
       const formData = new FormData();
-      formData.append('audio', audioBlob, 'question.wav');
-
-      const transcribeResponse = await axios.post(
-        `${API_BASE_URL}/transcribe`,
-        formData,
-        { headers: { 'Content-Type': 'multipart/form-data' } }
-      );
+      formData.append('audio', audioBlob, 'recording.webm');
+      
+      const transcribeResponse = await axios.post(`${API_BASE_URL}/transcribe`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
       
       const userText = transcribeResponse.data.text;
-      setTranscript(userText);
-
-      // Step 2: Get AI response
+      setTranscription(userText);
       setStatus('Thinking...');
-      const chatResponse = await axios.post(
-        `${API_BASE_URL}/chat`,
-        { message: userText },
-        { headers: { 'Content-Type': 'application/json' } }
-      );
       
-      const replyText = chatResponse.data.reply;
-      setAiResponse(replyText);
-
-      // Step 3: Generate voice (and stream if possible)
-      setStatus('Speaking...');
+      // Add user message to chat
+      const userMessage = {
+        id: Date.now(),
+        type: 'user',
+        text: userText,
+        timestamp: new Date().toISOString()
+      };
+      setMessages(prev => [...prev, userMessage]);
       
+      // Step 2: Get LLM response
+      const chatResponse = await axios.post(`${API_BASE_URL}/chat`, {
+        message: userText
+      });
+      
+      const aiText = chatResponse.data.reply;
+      setCurrentResponse(aiText);
+      setStatus('Generating voice...');
+      
+      // Add AI message to chat
+      const aiMessage = {
+        id: Date.now() + 1,
+        type: 'ai',
+        text: aiText,
+        timestamp: new Date().toISOString()
+      };
+      setMessages(prev => [...prev, aiMessage]);
+      
+      // Step 3: Generate speech with user's voice as reference
       const speakFormData = new FormData();
-      speakFormData.append('text', replyText);
-      if (referenceVoice) {
-        speakFormData.append('reference_audio', referenceVoice, 'reference.wav');
+      speakFormData.append('text', aiText);
+      speakFormData.append('reference_audio', audioBlob, 'reference.webm'); // Use user's voice!
+      
+      const speakResponse = await axios.post(`${API_BASE_URL}/speak`, speakFormData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        responseType: 'blob'
+      });
+      
+      // Play the generated audio
+      const audioUrl = URL.createObjectURL(speakResponse.data);
+      if (audioRef.current) {
+        audioRef.current.src = audioUrl;
+        setIsSpeaking(true);
+        setStatus('Speaking...');
+        await audioRef.current.play();
       }
-
-      const speakResponse = await axios.post(
-        `${API_BASE_URL}/speak`,
-        speakFormData,
-        {
-          headers: { 'Content-Type': 'multipart/form-data' },
-          responseType: 'blob'
-        }
-      );
-
-      // Play the audio
-      queueAudio(speakResponse.data);
-
+      
+      setTranscription('');
+      setCurrentResponse('');
+      
     } catch (error) {
       console.error('Processing error:', error);
       setStatus('Error: ' + (error.response?.data?.detail || error.message));
+      setTimeout(() => setStatus('Ready to listen...'), 3000);
     } finally {
       setIsProcessing(false);
     }
   };
-
-  // Setup reference voice
-  const setupReferenceVoice = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      
-      const options = { mimeType: 'audio/webm' };
-      const recorder = new MediaRecorder(stream, options);
-      const chunks = [];
-
-      recorder.ondataavailable = (e) => chunks.push(e.data);
-      
-      recorder.onstop = () => {
-        // Use the actual MIME type from the recorder
-        const mimeType = recorder.mimeType || 'audio/webm';
-        const blob = new Blob(chunks, { type: mimeType });
-        setReferenceVoice(blob);
-        setHasReferenceVoice(true);
-        
-        // Save to localStorage as base64
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          localStorage.setItem('referenceVoiceBlob', reader.result);
-        };
-        reader.readAsDataURL(blob);
-        
-        stream.getTracks().forEach(track => track.stop());
-        alert('Voice set! You can now start talking.');
-      };
-
-      recorder.start();
-      
-      setTimeout(() => {
-        recorder.stop();
-      }, 5000); // Record 5 seconds
-
-      alert('Recording your voice for 5 seconds...');
-      
-    } catch (error) {
-      console.error('Voice setup error:', error);
-      alert('Could not setup voice');
+  
+  // Handle audio playback ended
+  const handleAudioEnded = () => {
+    setIsSpeaking(false);
+    setStatus('Ready to listen...');
+  };
+  
+  // Toggle listening
+  const toggleListening = () => {
+    if (isListening) {
+      stopListening();
+    } else {
+      startListening();
     }
   };
-
+  
+  // Clear chat history
+  const clearChat = () => {
+    setMessages([]);
+    setTranscription('');
+    setCurrentResponse('');
+    setStatus('Ready to listen...');
+  };
+  
   return (
     <div className="realtime-voice-agent">
-      <div className="agent-container">
-        {/* Voice Visualizer */}
-        <div className={`voice-orb ${isListening ? 'listening' : ''} ${isSpeaking ? 'speaking' : ''} ${isProcessing ? 'processing' : ''}`}>
-          <div className="orb-inner">
-            {isListening && <span className="icon">🎤</span>}
-            {isSpeaking && <span className="icon">🔊</span>}
-            {isProcessing && <span className="icon">⚙️</span>}
-            {!isListening && !isSpeaking && !isProcessing && <span className="icon">🤖</span>}
-          </div>
-          <div className="pulse-ring"></div>
-          <div className="pulse-ring delayed"></div>
+      {/* Header */}
+      <div className="agent-header">
+        <div className="agent-title">
+          <div className="agent-icon">🎙️</div>
+          <h1>AI Voice Assistant</h1>
         </div>
-
-        {/* Status */}
-        <div className="status-text">{status}</div>
-
-        {/* Transcript Display */}
-        {transcript && (
-          <div className="transcript-box">
-            <strong>You:</strong> {transcript}
-          </div>
-        )}
-
-        {/* AI Response Display */}
-        {aiResponse && (
-          <div className="response-box">
-            <strong>AI:</strong> {aiResponse}
-          </div>
-        )}
-
-        {/* Controls */}
-        <div className="controls">
-          {!hasReferenceVoice ? (
-            <button
-              className="setup-button"
-              onClick={setupReferenceVoice}
+        <button className="clear-btn" onClick={clearChat} disabled={isProcessing}>
+          Clear Chat
+        </button>
+      </div>
+      
+      {/* Main Voice Interface */}
+      <div className="voice-interface">
+        {/* Animated Voice Orb */}
+        <div className={`voice-orb-container ${isListening ? 'listening' : ''} ${isSpeaking ? 'speaking' : ''} ${vadActive ? 'active' : ''}`}>
+          <div className="voice-orb">
+            {/* Animated rings */}
+            <div className="orb-ring ring-1"></div>
+            <div className="orb-ring ring-2"></div>
+            <div className="orb-ring ring-3"></div>
+            
+            {/* Center orb with audio level visualization */}
+            <div 
+              className="orb-center" 
+              style={{ transform: `scale(${1 + (audioLevel / 200)})` }}
             >
-              🎙️ Setup My Voice (5s)
-            </button>
-          ) : (
-            <>
-              <button
-                className={`talk-button ${isListening ? 'active' : ''}`}
-                onMouseDown={startListening}
-                onMouseUp={stopListening}
-                onTouchStart={startListening}
-                onTouchEnd={stopListening}
-                disabled={isProcessing || isSpeaking}
-              >
-                {isListening 
-                  ? `🎤 Recording... ${recordingDuration.toFixed(1)}s` 
-                  : '🎤 Hold to Talk'}
-              </button>
-              
-              <button
-                className="reset-button"
-                onClick={() => {
-                  localStorage.removeItem('referenceVoiceBlob');
-                  setHasReferenceVoice(false);
-                  setReferenceVoice(null);
-                }}
-              >
-                🔄 Change Voice
-              </button>
-            </>
+              {isListening && <span className="orb-icon">🎤</span>}
+              {isSpeaking && <span className="orb-icon">🔊</span>}
+              {!isListening && !isSpeaking && <span className="orb-icon">💬</span>}
+            </div>
+          </div>
+          
+          {/* Audio level bars */}
+          {isListening && (
+            <div className="audio-bars">
+              {[...Array(20)].map((_, i) => (
+                <div 
+                  key={i} 
+                  className="audio-bar"
+                  style={{
+                    height: `${Math.max(10, Math.random() * audioLevel * 2)}%`,
+                    animationDelay: `${i * 0.05}s`
+                  }}
+                ></div>
+              ))}
+            </div>
           )}
         </div>
-
-        {/* Tips */}
-        <div className="tips">
-          <p>💡 Hold the button for at least 1.5 seconds while speaking</p>
-          <p>⚡ Watch the timer - release after your question is complete</p>
-          <p>🎯 AI will respond in your voice</p>
+        
+        {/* Status Text */}
+        <div className="status-text">
+          <p className={vadActive ? 'active' : ''}>{status}</p>
+          {isListening && !vadActive && (
+            <p className="hint">Start speaking...</p>
+          )}
+          {vadActive && (
+            <p className="hint">I'm listening... (pause to finish)</p>
+          )}
+        </div>
+        
+        {/* Real-time Transcription Display */}
+        {transcription && (
+          <div className="realtime-transcription">
+            <span className="transcription-label">You said:</span>
+            <p>{transcription}</p>
+          </div>
+        )}
+        
+        {/* AI Response Display */}
+        {currentResponse && (
+          <div className="realtime-response">
+            <span className="response-label">AI response:</span>
+            <p>{currentResponse}</p>
+          </div>
+        )}
+        
+        {/* Control Button */}
+        <button 
+          className={`control-btn ${isListening ? 'listening' : ''} ${isProcessing ? 'processing' : ''}`}
+          onClick={toggleListening}
+          disabled={isProcessing || isSpeaking}
+        >
+          {isProcessing ? (
+            <>
+              <span className="spinner"></span>
+              Processing...
+            </>
+          ) : isListening ? (
+            <>
+              <span className="pulse-icon">⏹️</span>
+              Stop Recording
+            </>
+          ) : (
+            <>
+              <span className="mic-icon">🎤</span>
+              Start Talking
+            </>
+          )}
+        </button>
+      </div>
+      
+      {/* Chat Messages Display */}
+      <div className="chat-messages">
+        <h3>Conversation</h3>
+        <div className="messages-container">
+          {messages.length === 0 ? (
+            <div className="empty-state">
+              <p>No messages yet. Start a conversation!</p>
+            </div>
+          ) : (
+            messages.map(message => (
+              <div key={message.id} className={`message ${message.type}`}>
+                <div className="message-avatar">
+                  {message.type === 'user' ? '👤' : '🤖'}
+                </div>
+                <div className="message-content">
+                  <div className="message-text">{message.text}</div>
+                  <div className="message-time">
+                    {new Date(message.timestamp).toLocaleTimeString()}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
+      
+      {/* Hidden audio element for playback */}
+      <audio 
+        ref={audioRef} 
+        onEnded={handleAudioEnded}
+        style={{ display: 'none' }}
+      />
     </div>
   );
 };
 
 export default RealTimeVoiceAgent;
-
