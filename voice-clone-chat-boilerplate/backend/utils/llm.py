@@ -1,5 +1,5 @@
 """
-LLM utility for chat using OpenRouter API.
+LLM utility for chat using Qlu AI library.
 """
 
 import os
@@ -11,37 +11,36 @@ logger = logging.getLogger(__name__)
 
 async def chat_with_llm(
     message: str,
-    model: str = "openai/gpt-3.5-turbo",
+    model: str = "openai/gpt-4.1-mini-2025-04-14",
     system_prompt: Optional[str] = None,
-    conversation_history: Optional[List[Dict[str, str]]] = None
+    conversation_history: Optional[List[Dict[str, str]]] = None,
+    temperature: float = 0.7,
+    max_tokens: int = 4096
 ) -> str:
     """
-    Send a message to the LLM and get a response.
+    Send a message to the LLM and get a response using Qlu AI library.
     
     Args:
         message: User message
-        model: Model name (e.g., "openai/gpt-3.5-turbo", "anthropic/claude-2")
+        model: Model name (e.g., "openai/gpt-4.1-mini-2025-04-14")
         system_prompt: Optional system prompt
         conversation_history: Optional list of previous messages
+        temperature: Temperature for response randomness (0-1)
+        max_tokens: Maximum tokens in response
         
     Returns:
         LLM response text
     """
     try:
-        from openai import OpenAI
+        from qutils.llm.asynchronous import invoke
         
-        api_key = os.getenv("OPENAI_API_KEY")
-        api_base = os.getenv("OPENAI_API_BASE", "https://openrouter.ai/api/v1")
+        # Get Qlu API configuration
+        qlu_api_key = os.getenv("QLU_API_KEY")
+        llm_environment = os.getenv("LLM_ENVIRONMENT", "local")
+        gateway_url = os.getenv("LLM_PROXY_GATEWAY_URL")
         
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY not set in environment")
-        
-        # Create client with minimal parameters for compatibility
-        client = OpenAI(
-            api_key=api_key,
-            base_url=api_base,
-            default_headers={"HTTP-Referer": "http://localhost:8000", "X-Title": "Voice Chat App"}
-        )
+        if not qlu_api_key:
+            raise ValueError("QLU_API_KEY not set in environment")
         
         # Build messages array
         messages = []
@@ -49,6 +48,12 @@ async def chat_with_llm(
         # Add system prompt if provided
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
+        else:
+            # Default system prompt for voice assistant
+            messages.append({
+                "role": "system",
+                "content": "You are a helpful voice assistant. Provide clear, concise, and natural responses suitable for speech synthesis."
+            })
         
         # Add conversation history if provided
         if conversation_history:
@@ -57,14 +62,30 @@ async def chat_with_llm(
         # Add current user message
         messages.append({"role": "user", "content": message})
         
-        logger.info(f"Sending message to LLM: {message[:100]}...")
+        logger.info(f"Sending message to LLM (Qlu): {message[:100]}...")
+        logger.info(f"Using model: {model}, environment: {llm_environment}")
         
-        response = client.chat.completions.create(
+        # Call Qlu AI library invoke function
+        response_data = await invoke(
             model=model,
-            messages=messages
+            temperature=temperature,
+            max_tokens=max_tokens,
+            messages=messages,
+            verbose=True
         )
         
-        reply = response.choices[0].message.content.strip()
+        # Extract reply from response
+        reply = response_data["choices"][0]["message"]["content"].strip()
+        
+        # Log token usage if available
+        if "usage" in response_data:
+            usage = response_data["usage"]
+            logger.info(
+                f"Token usage - Input: {usage.get('prompt_tokens', 0)}, "
+                f"Output: {usage.get('completion_tokens', 0)}, "
+                f"Total: {usage.get('total_tokens', 0)}"
+            )
+        
         logger.info(f"LLM response: {reply[:100]}...")
         
         return reply

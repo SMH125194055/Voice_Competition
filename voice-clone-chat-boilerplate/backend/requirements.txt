@@ -3,11 +3,14 @@ fastapi==0.118.0
 uvicorn==0.27.0
 python-dotenv==1.0.0
 python-multipart==0.0.20
-starlette==0.48.0 
+starlette==0.48.0
 
 # OpenAI & LLM
 openai==2.1.0
 tiktoken==0.11.0
+
+# Qlu AI Library (for LLM integration)
+git+https://github.com/dnnaeinc/ai-Qlu2-library@development
 
 # HTTP & Networking
 httpx==0.28.1
