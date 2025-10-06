@@ -220,11 +220,37 @@ async def speak(
         # Save reference audio temporarily if provided
         ref_audio_path = None
         if reference_audio:
-            temp_ref_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+            # Save the uploaded audio (could be WebM, WAV, MP3, etc.)
+            temp_uploaded = tempfile.NamedTemporaryFile(delete=False, suffix=".webm")
             content = await reference_audio.read()
-            temp_ref_audio.write(content)
-            temp_ref_audio.close()
-            ref_audio_path = temp_ref_audio.name
+            temp_uploaded.write(content)
+            temp_uploaded.close()
+            
+            # Convert to WAV format for XTTS compatibility
+            try:
+                from pydub import AudioSegment
+                
+                # Load the audio (pydub auto-detects format)
+                audio = AudioSegment.from_file(temp_uploaded.name)
+                
+                # Convert to WAV
+                temp_ref_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+                audio.export(temp_ref_audio.name, format="wav")
+                temp_ref_audio.close()
+                
+                ref_audio_path = temp_ref_audio.name
+                
+                # Clean up the uploaded file
+                os.unlink(temp_uploaded.name)
+                
+                logger.info(f"Converted reference audio to WAV: {ref_audio_path}")
+                
+            except Exception as conv_error:
+                logger.error(f"Audio conversion failed: {conv_error}")
+                # Clean up
+                if os.path.exists(temp_uploaded.name):
+                    os.unlink(temp_uploaded.name)
+                raise HTTPException(status_code=500, detail=f"Failed to convert audio format: {conv_error}")
         else:
             # Use default from .env if no reference provided
             ref_audio_path = VOICE_CLONE_AUDIO
