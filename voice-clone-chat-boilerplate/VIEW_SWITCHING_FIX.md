@@ -157,3 +157,4 @@ Now with this fix:
 - No unnecessary localStorage reads
 - Faster and smoother experience
 
+

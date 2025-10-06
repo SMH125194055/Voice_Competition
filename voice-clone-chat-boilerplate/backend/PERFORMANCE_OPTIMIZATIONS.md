@@ -257,3 +257,4 @@ The main bottleneck is **ChatterBox TTS generation** (~5-8 min on CPU).
 
 **Next step: Add GPU for 10x faster generation!**
 
+
