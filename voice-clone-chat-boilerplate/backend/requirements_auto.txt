@@ -1,0 +1,171 @@
+# Auto-versioned Requirements for Python 3.12+
+# Let pip decide the best compatible versions
+
+# Core API Framework
+fastapi
+uvicorn[standard]
+python-dotenv
+python-multipart
+starlette
+
+# OpenAI & LLM
+openai
+tiktoken
+
+# Qlu AI Library (for LLM integration) - Commented out, requires authentication
+# git+https://github.com/dnnaeinc/ai-Qlu2-library@development
+
+# HTTP & Networking
+httpx
+requests
+aiohttp
+aiofiles
+websockets
+
+# PyTorch with CUDA
+torch
+torchaudio
+torchmetrics
+
+# Audio Processing Libraries
+soundfile
+pydub
+librosa
+audioread
+resampy
+sounddevice
+praat-parselmouth
+
+# Whisper (Speech-to-Text)
+git+https://github.com/openai/whisper.git
+
+# TTS Models - Skipping incompatible ones for Python 3.12
+# TTS  # Skipped - Python 3.9-3.11 only
+piper-tts
+edge-tts
+# rvc-python  # Skipped - requires fairseq which is Python 3.9-3.11 only
+
+# Gradio & UI
+gradio
+
+# NLP & Text Processing
+transformers
+tokenizers
+sentencepiece
+spacy
+
+# Text Normalization & Processing
+num2words
+inflect
+anyascii
+Unidecode
+pysbd
+gruut
+gruut-ipa
+
+# Language-Specific Processing
+pypinyin
+jieba
+g2pkk
+jamo
+pykakasi
+
+# Fairseq & Dependencies - Skipping (Python 3.9-3.11 only)
+# fairseq  # Skipped
+# hydra-core
+# omegaconf
+
+# Machine Learning & Data Science
+numpy
+scipy
+scikit-learn
+pandas
+datasets
+huggingface-hub
+safetensors
+
+# ONNX
+onnx
+onnxruntime-gpu
+
+# Encoders & Audio Processing
+encodec
+diffusers
+einops
+
+# ModelScope & FunASR
+modelscope
+funasr
+
+# Vector Search & Indexing
+faiss-cpu
+
+# Utilities
+pydantic
+tqdm
+click
+typer
+rich
+coloredlogs
+colorama
+loguru
+
+# File & Data Handling
+PyYAML
+tomlkit
+python-dateutil
+
+# Cryptography & Security
+cryptography
+certifi
+
+# Media Processing
+av
+ffmpeg-python
+pillow
+
+# Web Framework & Template
+Flask
+Jinja2
+Werkzeug
+
+# Monitoring & Logging
+tensorboard
+
+# Async & Concurrency
+psutil
+
+# Protobuf & gRPC
+protobuf
+grpcio
+
+# Mathematical Libraries
+numba
+
+# Threading & Concurrency
+portalocker
+
+# Additional Cloud/AI Libraries
+anthropic
+groq
+google-cloud-aiplatform
+vertexai
+elasticsearch
+influxdb-client
+
+# HTTP & Web Utilities
+beautifulsoup4
+httpx-sse
+tenacity
+
+# Database
+asyncpg
+psycopg-binary
+psycopg-pool
+
+# Testing
+pytest
+
+# Other utilities
+fuzzywuzzy
+

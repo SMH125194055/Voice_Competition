@@ -1,0 +1,18 @@
+Collecting git+https://github.com/dnnaeinc/ai-Qlu2-library@development (from -r requirements_auto.txt (line 16))
+  Cloning https://github.com/dnnaeinc/ai-Qlu2-library (to revision development) to /tmp/pip-req-build-q4slgym4
+  Running command git clone --filter=blob:none --quiet https://github.com/dnnaeinc/ai-Qlu2-library /tmp/pip-req-build-q4slgym4
+  fatal: could not read Username for 'https://github.com': No such device or address
+  error: subprocess-exited-with-error
+  
+  × git clone --filter=blob:none --quiet https://github.com/dnnaeinc/ai-Qlu2-library /tmp/pip-req-build-q4slgym4 did not run successfully.
+  │ exit code: 128
+  ╰─> See above for output.
+  
+  note: This error originates from a subprocess, and is likely not a problem with pip.
+error: subprocess-exited-with-error
+
+× git clone --filter=blob:none --quiet https://github.com/dnnaeinc/ai-Qlu2-library /tmp/pip-req-build-q4slgym4 did not run successfully.
+│ exit code: 128
+╰─> See above for output.
+
+note: This error originates from a subprocess, and is likely not a problem with pip.

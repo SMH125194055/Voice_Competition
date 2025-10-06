@@ -1,15 +1,178 @@
-fastapi
-uvicorn[standard]
-openai
-python-dotenv
-requests
-python-multipart
-git+https://github.com/openai/whisper.git
-torch
-torchaudio
-numpy
-pydub
-soundfile
-httpx
+# GPU-Optimized Requirements for Python 3.11+
+# Install PyTorch with CUDA first, then use this file
 
+# Core API Framework
+fastapi>=0.100.0
+uvicorn[standard]>=0.20.0
+python-dotenv>=1.0.0
+python-multipart>=0.0.20
+starlette>=0.27.0
+
+# OpenAI & LLM
+openai>=2.0.0
+tiktoken>=0.5.0
+
+# Qlu AI Library (for LLM integration)
+git+https://github.com/dnnaeinc/ai-Qlu2-library@development
+
+# HTTP & Networking
+httpx>=0.25.0
+requests>=2.31.0
+aiohttp>=3.9.0
+aiofiles>=23.0.0
+websockets>=12.0
+
+# PyTorch with CUDA - Install FIRST before other requirements!
+# Run: pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu118
+# Or for CUDA 12.1: pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+# torch>=2.0.0  # Install separately with CUDA
+# torchaudio>=2.0.0  # Install separately with CUDA
+torchmetrics>=1.0.0
+
+# Audio Processing Libraries
+soundfile>=0.12.0
+pydub>=0.25.0
+librosa>=0.10.0
+audioread>=3.0.0
+resampy>=0.4.0
+sounddevice>=0.4.0
+praat-parselmouth>=0.4.0
+
+# Whisper (Speech-to-Text)
+git+https://github.com/openai/whisper.git
+
+# TTS Models
+# Coqui TTS - strict Python version requirement
+TTS==0.22.0  # For Python 3.9-3.11 only
+piper-tts>=1.0.0
+edge-tts>=6.0.0
+rvc-python>=0.1.0
+
+# Gradio & UI
+gradio>=4.0.0
+
+# NLP & Text Processing
+transformers>=4.30.0
+tokenizers>=0.13.0
+sentencepiece>=0.1.99
+spacy>=3.5.0
+
+# Text Normalization & Processing
+num2words>=0.5.0
+inflect>=7.0.0
+anyascii>=0.3.0
+Unidecode>=1.3.0
+pysbd>=0.3.0
+gruut>=2.2.0
+gruut-ipa>=0.13.0
+
+# Language-Specific Processing
+pypinyin>=0.50.0
+jieba>=0.42.0
+g2pkk>=0.1.0
+jamo>=0.4.0
+pykakasi>=2.2.0
+
+# Fairseq & Dependencies (Python 3.9-3.11 compatible)
+fairseq==0.12.2
+hydra-core==1.0.7
+omegaconf==2.0.6
+
+# Machine Learning & Data Science
+numpy>=1.24.0,<2.0.0
+scipy>=1.10.0
+scikit-learn>=1.3.0
+pandas>=1.5.0
+datasets>=2.14.0
+huggingface-hub>=0.16.0
+safetensors>=0.3.0
+
+# ONNX
+onnx>=1.14.0
+onnxruntime-gpu>=1.15.0  # GPU version for ONNX
+
+# Encoders & Audio Processing
+encodec>=0.1.0
+diffusers>=0.21.0
+einops>=0.7.0
+
+# ModelScope & FunASR
+modelscope>=1.9.0
+funasr>=1.0.0
+
+# Vector Search & Indexing
+# Choose ONE:
+# Option A: If using rvc-python, use faiss-cpu
+#faiss-cpu==1.7.3  # Required by rvc-python
+# Option B: If NOT using rvc-python, uncomment below for GPU acceleration
+faiss-gpu>=1.7.3
+
+# Utilities
+pydantic>=2.0.0
+tqdm>=4.65.0
+click>=8.1.0
+typer>=0.9.0
+rich>=13.0.0
+coloredlogs>=15.0.0
+colorama>=0.4.0
+loguru>=0.7.0
+
+# File & Data Handling
+PyYAML>=6.0.0
+tomlkit>=0.12.0
+python-dateutil>=2.8.0
+
+# Cryptography & Security
+cryptography>=41.0.0
+certifi>=2023.7.0
+
+# Media Processing
+av>=10.0.0
+ffmpeg-python>=0.2.0
+pillow>=10.0.0
+
+# Web Framework & Template
+Flask>=3.0.0
+Jinja2>=3.1.0
+Werkzeug>=3.0.0
+
+# Monitoring & Logging
+tensorboard>=2.14.0
+
+# Async & Concurrency
+psutil>=5.9.0
+
+# Protobuf & gRPC
+protobuf>=4.24.0,<6.0.0
+grpcio>=1.50.0
+
+# Mathematical Libraries
+numba>=0.58.0
+
+# Threading & Concurrency
+portalocker>=2.7.0
+
+# Additional Cloud/AI Libraries (from Qlu dependencies)
+anthropic>=0.25.0
+groq>=0.4.0
+google-cloud-aiplatform>=1.30.0
+vertexai>=1.30.0
+elasticsearch>=8.9.0
+influxdb-client>=1.36.0
+
+# HTTP & Web Utilities
+beautifulsoup4>=4.12.0
+httpx-sse>=0.3.0
+tenacity>=8.2.0
+
+# Database
+asyncpg>=0.28.0
+psycopg-binary>=3.1.0
+psycopg-pool>=3.1.0
+
+# Testing
+pytest>=7.4.0
+
+# Other utilities
+fuzzywuzzy>=0.18.0
 
