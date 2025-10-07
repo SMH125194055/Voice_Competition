@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 async def chat_with_llm(
     message: str,
-    model: str = "openai/gpt-4.1-mini-2025-04-14",
+    model: str = "groq/llama-3.1-8b-instant",
     system_prompt: Optional[str] = None,
     conversation_history: Optional[List[Dict[str, str]]] = None,
     temperature: float = 0.7,

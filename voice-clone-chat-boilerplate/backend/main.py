@@ -23,7 +23,11 @@ from utils import (
     chat_with_llm,
     text_to_speech,
     get_current_model_info,
-    list_available_models
+    list_available_models,
+    get_vad_processor,
+    detect_speech,
+    has_speech,
+    clean_audio
 )
 
 # Configure logging
@@ -108,13 +112,23 @@ class TranscribeResponse(BaseModel):
 async def root():
     """Health check endpoint with model information."""
     model_info = get_current_model_info()
+    vad_processor = get_vad_processor()
     return {
         "status": "running",
         "mode": MODE,
         "tts_model": model_info.get("model", "unknown"),
         "tts_device": model_info.get("device", "unknown"),
         "available_tts_models": list_available_models(),
-        "endpoints": ["/transcribe", "/chat", "/speak", "/chat-voice"]
+        "vad_enabled": vad_processor.is_available(),
+        "endpoints": [
+            "/transcribe", 
+            "/chat", 
+            "/speak", 
+            "/chat-voice",
+            "/vad-transcribe",
+            "/detect-speech",
+            "/vad-chat-voice"
+        ]
     }
 
 
@@ -374,6 +388,257 @@ async def chat_voice(audio: UploadFile = File(...)):
         if temp_audio and os.path.exists(temp_audio.name):
             try:
                 os.unlink(temp_audio.name)
+            except:
+                pass
+
+
+# Endpoint 5: VAD-enhanced transcription (cleans audio before transcribing)
+@app.post("/vad-transcribe", response_model=TranscribeResponse)
+async def vad_transcribe(audio: UploadFile = File(...)):
+    """
+    Transcribe audio with VAD preprocessing to remove silence.
+    
+    Args:
+        audio: Audio file (WAV, MP3, WebM, etc.)
+        
+    Returns:
+        Transcribed text
+    """
+    temp_audio = None
+    cleaned_audio = None
+    
+    try:
+        # Detect file extension
+        file_ext = ".webm"
+        if audio.content_type:
+            logger.info(f"Received audio with content type: {audio.content_type}")
+            if "wav" in audio.content_type or "wave" in audio.content_type:
+                file_ext = ".wav"
+            elif "mp3" in audio.content_type:
+                file_ext = ".mp3"
+            elif "webm" in audio.content_type:
+                file_ext = ".webm"
+        
+        # Save uploaded file
+        temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
+        content = await audio.read()
+        logger.info(f"Received {len(content)} bytes of audio data")
+        
+        if len(content) == 0:
+            raise HTTPException(status_code=400, detail="Received empty audio file")
+        
+        temp_audio.write(content)
+        temp_audio.flush()
+        temp_audio.close()
+        
+        logger.info(f"Saved audio to: {temp_audio.name}")
+        
+        # Check if audio has speech
+        has_voice, speech_duration = has_speech(temp_audio.name, threshold=0.5)
+        logger.info(f"VAD check: has_speech={has_voice}, duration={speech_duration:.2f}s")
+        
+        if not has_voice or speech_duration < 0.3:
+            raise HTTPException(status_code=400, detail="No speech detected in audio")
+        
+        # Clean audio to remove silence
+        cleaned_audio = clean_audio(temp_audio.name)
+        audio_to_transcribe = cleaned_audio if cleaned_audio else temp_audio.name
+        
+        logger.info(f"Transcribing cleaned audio: {audio_to_transcribe}")
+        
+        # Transcribe
+        text = await transcribe_audio(audio_to_transcribe, MODE)
+        
+        return TranscribeResponse(text=text)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"VAD transcription error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+        
+    finally:
+        # Cleanup
+        if temp_audio and os.path.exists(temp_audio.name):
+            try:
+                os.unlink(temp_audio.name)
+            except:
+                pass
+        if cleaned_audio and cleaned_audio != temp_audio.name and os.path.exists(cleaned_audio):
+            try:
+                os.unlink(cleaned_audio)
+            except:
+                pass
+
+
+# Endpoint 6: VAD speech detection (returns speech segments)
+@app.post("/detect-speech")
+async def detect_speech_segments(audio: UploadFile = File(...)):
+    """
+    Detect speech segments in audio using VAD.
+    
+    Args:
+        audio: Audio file
+        
+    Returns:
+        List of speech segments with timestamps
+    """
+    temp_audio = None
+    
+    try:
+        # Save uploaded file
+        file_ext = ".wav" if audio.content_type and "wav" in audio.content_type else ".webm"
+        temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
+        content = await audio.read()
+        temp_audio.write(content)
+        temp_audio.flush()
+        temp_audio.close()
+        
+        # Detect speech segments
+        segments = detect_speech(temp_audio.name)
+        
+        # Check if speech was found
+        has_voice, total_duration = has_speech(temp_audio.name)
+        
+        return {
+            "has_speech": has_voice,
+            "total_speech_duration": total_duration,
+            "segments": segments,
+            "segment_count": len(segments)
+        }
+        
+    except Exception as e:
+        logger.error(f"Speech detection error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+        
+    finally:
+        if temp_audio and os.path.exists(temp_audio.name):
+            try:
+                os.unlink(temp_audio.name)
+            except:
+                pass
+
+
+# Endpoint 7: Complete VAD-enhanced voice chat
+@app.post("/vad-chat-voice")
+async def vad_chat_voice(audio: UploadFile = File(...)):
+    """
+    Complete voice chat pipeline with VAD enhancement:
+    1. Detect and validate speech using VAD
+    2. Clean audio by removing silence
+    3. Transcribe cleaned audio to text
+    4. Send text to LLM
+    5. Convert LLM response to speech
+    6. Return both text reply and audio
+    
+    Args:
+        audio: User's audio file
+        
+    Returns:
+        JSON with reply text + audio file
+    """
+    temp_audio = None
+    cleaned_audio = None
+    output_audio = None
+    
+    try:
+        # Detect file extension
+        file_ext = ".webm"
+        if audio.content_type:
+            logger.info(f"Received audio with content type: {audio.content_type}")
+            if "wav" in audio.content_type or "wave" in audio.content_type:
+                file_ext = ".wav"
+            elif "mp3" in audio.content_type:
+                file_ext = ".mp3"
+            elif "webm" in audio.content_type:
+                file_ext = ".webm"
+        
+        # Save uploaded audio
+        temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
+        content = await audio.read()
+        logger.info(f"Received {len(content)} bytes of audio data")
+        
+        if len(content) == 0:
+            raise HTTPException(status_code=400, detail="Received empty audio file")
+        
+        temp_audio.write(content)
+        temp_audio.flush()
+        temp_audio.close()
+        
+        logger.info(f"Saved audio to: {temp_audio.name}")
+        
+        # Step 1: VAD - Check if audio has speech
+        logger.info("Step 1: VAD - Checking for speech...")
+        has_voice, speech_duration = has_speech(temp_audio.name, threshold=0.5)
+        logger.info(f"VAD result: has_speech={has_voice}, duration={speech_duration:.2f}s")
+        
+        if not has_voice or speech_duration < 0.3:
+            raise HTTPException(
+                status_code=400, 
+                detail="No speech detected in audio. Please speak clearly and try again."
+            )
+        
+        # Step 2: Clean audio (remove silence)
+        logger.info("Step 2: Cleaning audio (removing silence)...")
+        cleaned_audio = clean_audio(temp_audio.name)
+        audio_to_transcribe = cleaned_audio if cleaned_audio else temp_audio.name
+        logger.info(f"Audio cleaned: {audio_to_transcribe}")
+        
+        # Step 3: Transcribe cleaned audio
+        logger.info("Step 3: Transcribing cleaned audio...")
+        user_text = await transcribe_audio(audio_to_transcribe, MODE)
+        logger.info(f"User said: {user_text}")
+        
+        if not user_text or len(user_text.strip()) < 2:
+            raise HTTPException(
+                status_code=400,
+                detail="Could not transcribe speech. Please try again."
+            )
+        
+        # Step 4: Get LLM response
+        logger.info("Step 4: Getting LLM response...")
+        reply_text = await chat_with_llm(user_text)
+        logger.info(f"LLM replied: {reply_text}")
+        
+        # Step 5: Convert reply to speech
+        logger.info("Step 5: Generating speech...")
+        output_audio = await text_to_speech(reply_text, MODE)
+        
+        # Encode reply text for safe HTTP header transmission
+        reply_text_encoded = base64.b64encode(reply_text.encode('utf-8')).decode('ascii')
+        user_text_encoded = base64.b64encode(user_text.encode('utf-8')).decode('ascii')
+        
+        # Return both text and audio
+        return FileResponse(
+            output_audio,
+            media_type="audio/wav",
+            filename="reply.wav",
+            headers={
+                "Content-Disposition": "attachment; filename=reply.wav",
+                "X-Reply-Text": reply_text_encoded,
+                "X-User-Text": user_text_encoded,
+                "X-Speech-Duration": str(speech_duration),
+                "X-Reply-Text-Encoding": "base64",
+                "X-VAD-Enabled": "true"
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"VAD voice chat error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+        
+    finally:
+        # Cleanup
+        if temp_audio and os.path.exists(temp_audio.name):
+            try:
+                os.unlink(temp_audio.name)
+            except:
+                pass
+        if cleaned_audio and cleaned_audio != temp_audio.name and os.path.exists(cleaned_audio):
+            try:
+                os.unlink(cleaned_audio)
             except:
                 pass
 
