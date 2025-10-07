@@ -418,6 +418,7 @@ class CoquiXTTS(TTSModelBase):
             if ref_audio and os.path.exists(ref_audio):
                 logger.info(f"Using reference voice: {ref_audio}")
                 
+                
                 # Generate with voice cloning
                 wav = self.model.tts(
                     text=text,

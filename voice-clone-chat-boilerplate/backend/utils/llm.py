@@ -9,6 +9,7 @@ from typing import List, Dict, Optional
 logger = logging.getLogger(__name__)
 
 
+
 async def chat_with_llm(
     message: str,
     model: str = "openai/gpt-4.1-mini-2025-04-14",

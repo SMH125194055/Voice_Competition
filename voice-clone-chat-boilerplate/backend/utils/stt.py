@@ -3,6 +3,7 @@ Speech-to-Text (STT) utility using Whisper.
 Supports both local model and API mode.
 """
 
+
 import os
 import logging
 from typing import Optional

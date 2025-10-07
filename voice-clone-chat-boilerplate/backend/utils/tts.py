@@ -13,6 +13,7 @@ from .tts_models import TTSModelFactory, TTSModelBase
 
 logger = logging.getLogger(__name__)
 
+
 # Global TTS model instance
 tts_model: Optional[TTSModelBase] = None
 tts_model_name: Optional[str] = None
