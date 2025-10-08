@@ -146,3 +146,6 @@ FastTTS gives you **200-300x speedup** vs your current 10-12 minutes, even witho
 Just set `TTS_MODEL=fast` and restart! 🚀
 
 
+
+
+

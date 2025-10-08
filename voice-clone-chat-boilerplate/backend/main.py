@@ -11,10 +11,11 @@ import base64
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form, BackgroundTasks
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
+import json
 
 from utils import (
     initialize_stt,
@@ -29,6 +30,23 @@ from utils import (
     has_speech,
     clean_audio
 )
+from utils.streaming_stt import transcribe_streaming, initialize_streaming_stt
+from utils.realtime_stt import (
+    transcribe_stream_progressive, 
+    initialize_realtime_stt,
+    process_webm_stream
+)
+from utils.websocket_stt import (
+    transcribe_audio_stream_fast,
+    initialize_websocket_stt
+)
+from utils.parallel_whisper import (
+    initialize_parallel_whisper,
+    transcribe_audio_parallel,
+    transcribe_audio_batched,
+    get_pool_info
+)
+import utils.stt as stt_module
 
 # Configure logging
 logging.basicConfig(
@@ -43,6 +61,7 @@ load_dotenv()
 MODE = os.getenv("MODE", "local")
 VOICE_CLONE_AUDIO = os.getenv("VOICE_CLONE_AUDIO", "audio/Nafay_Org.mp3")
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
+TRANSCRIPTION_MODE = os.getenv("TRANSCRIPTION_MODE", "parallel")  # "parallel" or "sequential"
 
 
 @asynccontextmanager
@@ -56,6 +75,23 @@ async def lifespan(app: FastAPI):
     # Initialize STT
     try:
         initialize_stt(MODE, WHISPER_MODEL)
+        # Initialize streaming STT with the same model
+        initialize_streaming_stt(stt_module.whisper_model)
+        initialize_realtime_stt(stt_module.whisper_model)
+        initialize_websocket_stt(stt_module.whisper_model)
+        
+        # Initialize parallel Whisper with multiple model instances (if enabled)
+        if TRANSCRIPTION_MODE == "parallel":
+            num_workers = int(os.getenv("WHISPER_WORKERS", "3"))
+            logger.info(f"Initializing {num_workers} parallel Whisper workers...")
+            initialize_parallel_whisper(stt_module.whisper_model, num_workers=num_workers)
+            logger.info(f"✅ Parallel processing STT initialized with {num_workers} workers")
+        else:
+            logger.info(f"Sequential processing mode enabled (TRANSCRIPTION_MODE=sequential)")
+        
+        logger.info(f"Streaming STT initialized with model: {stt_module.whisper_model is not None}")
+        logger.info(f"Real-time chunk-based STT initialized")
+        logger.info(f"Transcription mode: {TRANSCRIPTION_MODE}")
     except Exception as e:
         logger.error(f"Failed to initialize STT: {e}")
     
@@ -113,18 +149,27 @@ async def root():
     """Health check endpoint with model information."""
     model_info = get_current_model_info()
     vad_processor = get_vad_processor()
+    pool_info = get_pool_info()
     return {
         "status": "running",
         "mode": MODE,
+        "transcription_mode": TRANSCRIPTION_MODE,
         "tts_model": model_info.get("model", "unknown"),
         "tts_device": model_info.get("device", "unknown"),
         "available_tts_models": list_available_models(),
         "vad_enabled": vad_processor.is_available(),
+        "parallel_whisper": {
+            "enabled": TRANSCRIPTION_MODE == "parallel" and pool_info["initialized"],
+            "workers": pool_info["workers"] if TRANSCRIPTION_MODE == "parallel" else 1,
+            "target_workers": pool_info["target_workers"]
+        },
         "endpoints": [
             "/transcribe", 
+            "/transcribe-stream",
             "/chat", 
             "/speak", 
             "/chat-voice",
+            "/chat-voice-stream",
             "/vad-transcribe",
             "/detect-speech",
             "/vad-chat-voice"
@@ -641,6 +686,225 @@ async def vad_chat_voice(audio: UploadFile = File(...)):
                 os.unlink(cleaned_audio)
             except:
                 pass
+
+
+# Endpoint 8: Real-time streaming transcription
+@app.post("/transcribe-stream")
+async def transcribe_stream(audio: UploadFile = File(...)):
+    """
+    Transcribe audio with streaming/progressive updates.
+    Returns Server-Sent Events (SSE) stream with partial transcriptions.
+    
+    Args:
+        audio: Audio file (WAV, MP3, WebM, etc.)
+        
+    Returns:
+        Server-Sent Events stream with transcription progress
+    """
+    temp_audio = None
+    
+    try:
+        # Detect file extension
+        file_ext = ".webm"
+        if audio.content_type:
+            logger.info(f"Received audio with content type: {audio.content_type}")
+            if "wav" in audio.content_type or "wave" in audio.content_type:
+                file_ext = ".wav"
+            elif "mp3" in audio.content_type:
+                file_ext = ".mp3"
+            elif "webm" in audio.content_type:
+                file_ext = ".webm"
+        
+        # Save uploaded file
+        temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
+        content = await audio.read()
+        logger.info(f"Received {len(content)} bytes of audio data for streaming transcription")
+        
+        if len(content) == 0:
+            raise HTTPException(status_code=400, detail="Received empty audio file")
+        
+        temp_audio.write(content)
+        temp_audio.flush()
+        temp_audio.close()
+        
+        logger.info(f"Saved audio to: {temp_audio.name}")
+        
+        # Create streaming response
+        async def event_generator():
+            try:
+                async for result in transcribe_streaming(temp_audio.name, MODE):
+                    # Format as Server-Sent Event
+                    event_data = json.dumps(result)
+                    yield f"data: {event_data}\n\n"
+                
+                # Send final completion event
+                yield f"data: {json.dumps({'status': 'done'})}\n\n"
+                
+            except Exception as e:
+                logger.error(f"Streaming transcription error: {e}")
+                error_event = json.dumps({
+                    "status": "error",
+                    "error": str(e)
+                })
+                yield f"data: {error_event}\n\n"
+            
+            finally:
+                # Cleanup
+                if temp_audio and os.path.exists(temp_audio.name):
+                    try:
+                        os.unlink(temp_audio.name)
+                    except:
+                        pass
+        
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no"
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Streaming transcription setup error: {e}")
+        # Cleanup if error occurs before streaming starts
+        if temp_audio and os.path.exists(temp_audio.name):
+            try:
+                os.unlink(temp_audio.name)
+            except:
+                pass
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Endpoint 9: Real-time chunk-based voice chat
+@app.post("/chat-voice-stream")
+async def chat_voice_stream(audio: UploadFile = File(...)):
+    """
+    Complete voice chat pipeline with REAL-TIME chunk-based transcription:
+    1. Process audio in chunks as it transcribes (no waiting for complete file)
+    2. Stream each word/phrase as it's transcribed
+    3. Send final text to LLM
+    4. Convert response to speech
+    5. Return audio
+    
+    Args:
+        audio: User's audio file
+        
+    Returns:
+        Server-Sent Events stream with chunk-by-chunk transcription
+    """
+    output_audio = None
+    
+    try:
+        # Read audio content
+        content = await audio.read()
+        logger.info(f"Received {len(content)} bytes for chunk-based streaming transcription")
+        
+        if len(content) == 0:
+            raise HTTPException(status_code=400, detail="Received empty audio file")
+        
+        # Create streaming response
+        async def event_generator():
+            user_text = ""
+            reply_text = ""
+            output_audio = None  # Initialize here
+            
+            try:
+                # Phase 1: Real-time chunk-based transcription
+                yield f"data: {json.dumps({'phase': 'transcription', 'status': 'started'})}\n\n"
+                
+                # Use configured transcription mode (parallel or sequential)
+                if TRANSCRIPTION_MODE == "parallel":
+                    logger.info("Using TRUE parallel processing with multiple Whisper models")
+                    async for result in transcribe_audio_parallel(content, sample_rate=16000, chunk_duration=1.5):
+                        result['phase'] = 'transcription'
+                        yield f"data: {json.dumps(result)}\n\n"
+                        
+                        if result.get('status') == 'complete' and not result.get('partial'):
+                            user_text = result.get('text', '')
+                else:
+                    # Use SIMPLE sequential method (basic transcribe_audio from stt.py)
+                    logger.info("Using simple sequential transcription (basic method)")
+                    
+                    # Save audio to temp file for basic transcription
+                    import tempfile
+                    temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+                    temp_audio.write(content)
+                    temp_audio.flush()
+                    temp_audio.close()
+                    
+                    try:
+                        # Send starting status
+                        yield f"data: {json.dumps({'phase': 'transcription', 'status': 'transcribing', 'text': '', 'partial': True})}\n\n"
+                        
+                        # Use basic transcribe_audio (simple, no streaming)
+                        user_text = await transcribe_audio(temp_audio.name, MODE)
+                        
+                        # Send complete status
+                        yield f"data: {json.dumps({'phase': 'transcription', 'status': 'complete', 'text': user_text, 'partial': False})}\n\n"
+                        
+                    finally:
+                        # Clean up temp file
+                        if os.path.exists(temp_audio.name):
+                            os.unlink(temp_audio.name)
+                
+                if not user_text:
+                    raise Exception("No transcription received")
+                
+                logger.info(f"User said: {user_text}")
+                
+                # Phase 2: LLM processing
+                yield f"data: {json.dumps({'phase': 'llm', 'status': 'started', 'user_text': user_text})}\n\n"
+                
+                reply_text = await chat_with_llm(user_text)
+                logger.info(f"LLM replied: {reply_text}")
+                
+                yield f"data: {json.dumps({'phase': 'llm', 'status': 'complete', 'text': reply_text})}\n\n"
+                
+                # Phase 3: TTS generation
+                yield f"data: {json.dumps({'phase': 'tts', 'status': 'started'})}\n\n"
+                
+                output_audio = await text_to_speech(reply_text, MODE)
+                
+                # Encode audio file to base64
+                with open(output_audio, 'rb') as f:
+                    audio_data = f.read()
+                audio_base64 = base64.b64encode(audio_data).decode('ascii')
+                
+                yield f"data: {json.dumps({'phase': 'tts', 'status': 'complete', 'audio': audio_base64})}\n\n"
+                
+                # Final completion
+                yield f"data: {json.dumps({'status': 'done'})}\n\n"
+                
+            except Exception as e:
+                logger.error(f"Streaming chat error: {e}")
+                error_event = json.dumps({
+                    "status": "error",
+                    "error": str(e)
+                })
+                yield f"data: {error_event}\n\n"
+            
+            finally:
+                # Cleanup output audio after sending
+                if output_audio and os.path.exists(output_audio):
+                    try:
+                        await asyncio.sleep(2)
+                        os.unlink(output_audio)
+                    except:
+                        pass
+        
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no"
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Streaming chat setup error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

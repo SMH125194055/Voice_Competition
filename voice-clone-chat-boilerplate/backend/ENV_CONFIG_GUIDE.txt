@@ -1,0 +1,98 @@
+================================================================================
+ TRANSCRIPTION MODE CONFIGURATION - Quick Reference
+================================================================================
+
+📋 CREATE .env FILE:
+--------------------
+Create this file: voice-clone-chat-boilerplate/backend/.env
+
+⚡ OPTION 1: PARALLEL MODE (FAST - 3x Speedup)
+-----------------------------------------------
+TRANSCRIPTION_MODE=parallel
+WHISPER_WORKERS=3
+WHISPER_MODEL=base
+
+✅ Speed: 4-5 seconds for 10s audio
+⚠️  Memory: ~4.5 GB RAM needed
+
+🔄 OPTION 2: SEQUENTIAL MODE (LOW MEMORY)
+------------------------------------------
+TRANSCRIPTION_MODE=sequential
+WHISPER_MODEL=base
+
+✅ Memory: ~1.5 GB RAM
+⚠️  Speed: 10-14 seconds for 10s audio
+
+================================================================================
+ QUICK EXAMPLES
+================================================================================
+
+HIGH-END SYSTEM (16+ GB RAM):
+-----------------------------
+TRANSCRIPTION_MODE=parallel
+WHISPER_WORKERS=4
+WHISPER_MODEL=small
+
+NORMAL SYSTEM (8-16 GB RAM):
+---------------------------
+TRANSCRIPTION_MODE=parallel
+WHISPER_WORKERS=3
+WHISPER_MODEL=base
+
+LOW-RAM SYSTEM (< 8 GB RAM):
+---------------------------
+TRANSCRIPTION_MODE=sequential
+WHISPER_MODEL=tiny
+
+GPU SYSTEM:
+-----------
+TRANSCRIPTION_MODE=parallel
+WHISPER_WORKERS=1
+WHISPER_MODEL=base
+
+================================================================================
+ HOW TO APPLY CHANGES
+================================================================================
+
+1. Create/Edit: backend/.env
+2. Add your settings (see examples above)
+3. Restart backend:
+   cd voice-clone-chat-boilerplate/backend
+   python main.py
+
+4. Verify at: http://localhost:8000/
+   Look for: "transcription_mode": "parallel" or "sequential"
+
+================================================================================
+ TROUBLESHOOTING
+================================================================================
+
+❌ Backend crashes / Out of memory:
+  → Use TRANSCRIPTION_MODE=sequential
+  → Or reduce WHISPER_WORKERS=2
+
+❌ Too slow:
+  → Use TRANSCRIPTION_MODE=parallel
+  → Or use WHISPER_MODEL=tiny
+
+❌ Changes not applied:
+  → Stop backend (Ctrl+C)
+  → Start again: python main.py
+  → Check http://localhost:8000/
+
+================================================================================
+ MEMORY REQUIREMENTS (Base Model)
+================================================================================
+
+Sequential Mode:          ~1.5 GB
+Parallel - 2 workers:     ~3 GB
+Parallel - 3 workers:     ~4.5 GB  ← Recommended
+Parallel - 4 workers:     ~6 GB
+
+================================================================================
+For detailed docs: See TRANSCRIPTION_MODE_CONFIG.md
+================================================================================
+
+
+
+

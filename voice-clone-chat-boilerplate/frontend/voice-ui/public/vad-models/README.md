@@ -32,3 +32,6 @@ cp node_modules/@ricky0123/vad-web/dist/*.js public/vad-models/
 ## For production deployment:
 Make sure to include this `vad-models` folder when deploying your application.
 
+
+
+

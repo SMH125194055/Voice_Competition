@@ -41,3 +41,6 @@ curl -X POST http://localhost:8000/speak \
 That's it! Just restart the backend and XTTS will work!
 
 
+
+
+

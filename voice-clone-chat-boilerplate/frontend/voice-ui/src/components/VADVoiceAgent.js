@@ -16,6 +16,8 @@ const VADVoiceAgent = () => {
   const [error, setError] = useState(null);
   const [messages, setMessages] = useState([]);
   const [isMuted, setIsMuted] = useState(false);
+  const [liveTranscript, setLiveTranscript] = useState('');
+  const [currentPhase, setCurrentPhase] = useState('');
   
   // Refs
   const audioRef = useRef(null);
@@ -217,75 +219,136 @@ const VADVoiceAgent = () => {
     }
   };
   
-  // Process conversation with backend
+  // Process conversation with backend using streaming
   const processConversation = async (audioFile) => {
+    let userText = '';
+    let aiText = '';
+    
     try {
-      setStatus('Transcribing & thinking...');
+      setLiveTranscript('');
+      setCurrentPhase('transcription');
+      setStatus('🎤 Transcribing your speech...');
       
-      // Use VAD-enhanced endpoint
+      // Use streaming endpoint
       const formData = new FormData();
       formData.append('audio', audioFile);
       
-      const response = await axios.post(`${API_BASE_URL}/vad-chat-voice`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        responseType: 'blob'
+      const response = await fetch(`${API_BASE_URL}/chat-voice-stream`, {
+        method: 'POST',
+        body: formData
       });
       
-      // Extract text from headers (base64 encoded)
-      const userText = decodeURIComponent(
-        atob(response.headers['x-user-text'] || '')
-      );
-      const aiText = decodeURIComponent(
-        atob(response.headers['x-reply-text'] || '')
-      );
-      const speechDuration = response.headers['x-speech-duration'] || '0';
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
       
-      console.log('📝 User:', userText);
-      console.log('🤖 AI:', aiText);
-      console.log('⏱️ Speech duration:', speechDuration + 's');
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
       
-      // Update conversation history
-      const newMessages = [
-        ...messages,
-        { 
-          id: Date.now(), 
-          type: 'user', 
-          text: userText,
-          timestamp: new Date().toISOString()
-        },
-        { 
-          id: Date.now() + 1, 
-          type: 'ai', 
-          text: aiText,
-          timestamp: new Date().toISOString()
-        }
-      ];
-      setMessages(newMessages);
-      
-      // Play AI response
-      if (!isMuted && audioRef.current) {
-        const audioUrl = URL.createObjectURL(response.data);
-        audioRef.current.src = audioUrl;
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
         
-        try {
-          await audioRef.current.play();
-        } catch (playError) {
-          console.error('Playback error:', playError);
-          setIsAISpeaking(false);
+        // Decode chunk
+        buffer += decoder.decode(value, { stream: true });
+        
+        // Process Server-Sent Events
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // Keep incomplete line in buffer
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              // Handle different phases
+              if (data.phase === 'transcription') {
+                if (data.text) {
+                  setLiveTranscript(data.text);
+                  setStatus(`🎤 "${data.text}"`);
+                }
+                if (data.status === 'complete' && !data.partial) {
+                  userText = data.text;
+                  console.log('📝 User said:', userText);
+                }
+              } else if (data.phase === 'llm') {
+                if (data.status === 'started') {
+                  setCurrentPhase('llm');
+                  setStatus('🤔 AI is thinking...');
+                  setLiveTranscript('');
+                } else if (data.status === 'complete') {
+                  aiText = data.text;
+                  setStatus('🎙️ Generating voice...');
+                  console.log('🤖 AI replied:', aiText);
+                }
+              } else if (data.phase === 'tts') {
+                if (data.status === 'started') {
+                  setCurrentPhase('tts');
+                  setStatus('🔊 Generating voice...');
+                } else if (data.status === 'complete' && data.audio) {
+                  setCurrentPhase('playback');
+                  setStatus('🔊 Playing response...');
+                  
+                  // Decode base64 audio and play
+                  const audioData = atob(data.audio);
+                  const audioArray = new Uint8Array(audioData.length);
+                  for (let i = 0; i < audioData.length; i++) {
+                    audioArray[i] = audioData.charCodeAt(i);
+                  }
+                  const audioBlob = new Blob([audioArray], { type: 'audio/wav' });
+                  const audioUrl = URL.createObjectURL(audioBlob);
+                  
+                  if (!isMuted && audioRef.current) {
+                    audioRef.current.src = audioUrl;
+                    try {
+                      await audioRef.current.play();
+                    } catch (playError) {
+                      console.error('Playback error:', playError);
+                      setIsAISpeaking(false);
+                    }
+                  }
+                }
+              } else if (data.status === 'done') {
+                console.log('✅ Conversation complete');
+                setLiveTranscript('');
+                setCurrentPhase('');
+                
+                // Update conversation history
+                if (userText && aiText) {
+                  const newMessages = [
+                    ...messages,
+                    { 
+                      id: Date.now(), 
+                      type: 'user', 
+                      text: userText,
+                      timestamp: new Date().toISOString()
+                    },
+                    { 
+                      id: Date.now() + 1, 
+                      type: 'ai', 
+                      text: aiText,
+                      timestamp: new Date().toISOString()
+                    }
+                  ];
+                  setMessages(newMessages);
+                }
+              } else if (data.status === 'error') {
+                throw new Error(data.error || 'Streaming error');
+              }
+            } catch (parseError) {
+              console.error('Error parsing SSE data:', parseError);
+            }
+          }
         }
       }
       
     } catch (err) {
-      console.error('❌ Conversation error:', err);
-      
-      if (err.response?.status === 400) {
-        // No speech detected or too short
-        setError(err.response.data.detail || 'No clear speech detected');
-        setStatus('Please speak clearly and try again');
-      } else {
-        setError('Failed to process conversation');
-        setStatus('Error occurred');
-      }
+      console.error('❌ Streaming conversation error:', err);
+      setError(err.message || 'Failed to process conversation');
+      setStatus('Error occurred');
+      setLiveTranscript('');
+      setCurrentPhase('');
       
       setTimeout(() => {
         setError(null);
@@ -318,6 +381,8 @@ const VADVoiceAgent = () => {
   const clearConversation = () => {
     setMessages([]);
     setError(null);
+    setLiveTranscript('');
+    setCurrentPhase('');
     setStatus(isListening ? 'Listening for speech...' : 'Ready! Click Start to begin');
   };
   
@@ -393,6 +458,21 @@ const VADVoiceAgent = () => {
             </div>
           </div>
         </div>
+        
+        {/* Live Transcription Display */}
+        {liveTranscript && (
+          <div className="live-transcript-container">
+            <div className="live-transcript-label">
+              {currentPhase === 'transcription' && '🎤 Live Transcription:'}
+              {currentPhase === 'llm' && '🤔 Processing...'}
+              {currentPhase === 'tts' && '🔊 Generating voice...'}
+            </div>
+            <div className="live-transcript">
+              {liveTranscript}
+              {currentPhase === 'transcription' && <span className="transcript-cursor">|</span>}
+            </div>
+          </div>
+        )}
         
         {/* Status Display */}
         <div className="vad-status-container">

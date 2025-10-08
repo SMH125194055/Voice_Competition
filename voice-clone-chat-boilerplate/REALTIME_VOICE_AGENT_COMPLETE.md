@@ -413,3 +413,6 @@ If you encounter any issues:
 - Check microphone permissions
 - Verify .env configuration
 
+
+
+

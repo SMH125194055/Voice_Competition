@@ -39,3 +39,6 @@ If downgrade doesn't work, you can patch fairseq manually. But this is complex.
 Since RVC has dependency issues, I recommend using a simpler fast TTS approach. Let me update the code to use a more reliable method.
 
 
+
+
+
