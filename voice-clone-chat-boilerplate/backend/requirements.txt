@@ -1,185 +1,184 @@
+# ============================================
+# Voice Clone Chat - Backend Requirements
+# Generated from actual venv (pip freeze)
+# Python 3.10+ required (NOT 3.12)
+# ============================================
+
 # Core API Framework
 fastapi==0.118.0
-uvicorn==0.27.0
-python-dotenv==1.0.0
-python-multipart==0.0.20
+uvicorn==0.37.0
 starlette==0.48.0
-
-# OpenAI & LLM
-openai==2.1.0
-tiktoken==0.11.0
-
-# Qlu AI Library (for LLM integration)
-git+https://github.com/dnnaeinc/ai-Qlu2-library@development
+python-dotenv==1.1.1
+python-multipart==0.0.20
+pydantic==2.11.10
+pydantic_core==2.33.2
 
 # HTTP & Networking
 httpx==0.28.1
 httpcore==1.0.9
+httpx-sse==0.4.2
 requests==2.32.5
-aiohttp==3.12.15
+aiohttp==3.13.0
 aiohappyeyeballs==2.6.1
 aiosignal==1.4.0
 aiofiles==24.1.0
 h11==0.16.0
 httptools==0.6.4
 websockets==15.0.1
+urllib3==2.5.0
+idna==3.10
+charset-normalizer==3.4.3
+certifi==2025.10.5
 
-# PyTorch & Audio Processing
-torch==2.5.1
-torchaudio==2.5.1
+# OpenAI & LLM
+openai==2.2.0
+tiktoken==0.12.0
+anthropic==0.69.0
+groq==0.32.0
+
+# AI/ML Cloud Platforms
+google-cloud-aiplatform==1.71.1
+vertexai==1.71.1
+google-cloud-storage==2.19.0
+google-cloud-bigquery==3.38.0
+google-cloud-core==2.4.3
+google-api-core==2.25.2
+google-auth==2.41.1
+elasticsearch==8.19.1
+elasticsearch-dsl==8.15.4
+
+# PyTorch & Deep Learning
+torch==2.8.0
+torchaudio==2.8.0
 torchmetrics==1.8.2
-pytorch-lightning==2.5.5
-lightning==2.5.5
-lightning-utilities==0.15.2
+triton==3.4.0
 
-# Audio Processing Libraries
+# NVIDIA CUDA Libraries (for GPU support)
+nvidia-cuda-runtime-cu12==12.8.90
+nvidia-cudnn-cu12==9.10.2.21
+nvidia-cublas-cu12==12.8.4.1
+nvidia-cuda-nvrtc-cu12==12.8.93
+nvidia-cufft-cu12==11.3.3.83
+nvidia-curand-cu12==10.3.9.90
+nvidia-cusolver-cu12==11.7.3.90
+nvidia-cusparse-cu12==12.5.8.93
+nvidia-nccl-cu12==2.27.3
+
+# Audio Processing
 soundfile==0.13.1
 pydub==0.25.1
 librosa==0.11.0
 audioread==3.0.1
 resampy==0.4.3
 soxr==1.0.0
-pyworld==0.3.5
 praat-parselmouth==0.4.6
-torchcrepe==0.0.24
 sounddevice==0.5.2
+av==15.1.0
+ffmpeg-python==0.2.0
+ffmpy==0.6.1
 
 # Whisper (Speech-to-Text)
-git+https://github.com/openai/whisper.git
+openai-whisper==20250625
 
 # TTS Models
-TTS==0.22.0
+chatterbox-tts==0.1.4
 piper-tts==1.3.0
 edge-tts==7.2.3
-rvc-python==0.1.5
-chatterbox-tts==0.1.4
-voxcpm==1.0.4
 
-# Gradio & UI
-gradio==5.44.1
-gradio_client==1.12.1
+# Voice Activity Detection
+silero-vad==6.0.0
 
-# NLP & Text Processing
-transformers==4.44.2
-tokenizers==0.19.1
+# NLP & Transformers
+transformers==4.57.0
+tokenizers==0.22.1
 sentencepiece==0.2.1
+datasets==4.1.1
+huggingface-hub==0.35.3
+safetensors==0.6.2
+
+# Spacy NLP
 spacy==3.8.7
 spacy-legacy==3.0.12
 spacy-loggers==1.0.5
-nltk==3.9.2
+thinc==8.3.6
+cymem==2.0.11
+preshed==3.0.10
+murmurhash==1.0.13
+blis==1.3.0
+catalogue==2.0.10
+srsly==2.5.1
+confection==0.1.5
+wasabi==1.1.3
+weasel==0.4.1
 
-# Text Normalization & Processing
+# Text Processing
+nltk==3.9.2
 num2words==0.5.14
 inflect==7.5.0
 anyascii==0.3.3
 Unidecode==1.4.0
 pysbd==0.3.4
-gruut==2.2.3
+gruut==2.4.0
 gruut-ipa==0.13.0
-gruut_lang_de==2.0.1
 gruut_lang_en==2.0.1
-gruut_lang_es==2.0.1
-gruut_lang_fr==2.0.2
+langcodes==3.5.0
+language_data==1.3.0
 
 # Language-Specific Processing
 pypinyin==0.55.0
 jieba==0.42.1
 g2pkk==0.1.2
 jamo==0.4.1
-hangul-romanize==0.1.0
 jaconv==0.4.0
 pykakasi==2.3.0
-bangla==0.0.5
-bnnumerizer==0.0.2
-bnunicodenormalizer==0.1.7
-SudachiPy==0.6.10
-SudachiDict-core==20250825
 
-# Fairseq & Dependencies
-fairseq==0.12.2
-hydra-core==1.0.7
-omegaconf==2.0.6
-sacrebleu==2.5.1
-
-# Machine Learning & Data Science
-numpy==1.26.4
-scipy==1.16.2
-scikit-learn==1.7.2
-pandas==1.5.3
-datasets==3.6.0
-huggingface-hub==0.35.3
-safetensors==0.6.2
-
-# ONNX
-onnx==1.19.0
-onnxruntime==1.23.0
-
-# Encoders & Audio Processing
+# Encoders & Audio Models
 encodec==0.1.1
-diffusers==0.29.0
+diffusers==0.35.1
 einops==0.8.1
 conformer==0.3.2
+resemble-perth==1.0.1
+s3tokenizer==0.2.0
 
 # ModelScope & FunASR
 modelscope==1.30.0
 funasr==1.2.7
 kaldiio==2.18.1
-kaldifst==1.7.17
 pytorch-wpe==0.0.1
+torch-complex==0.4.4
+
+# ONNX Runtime
+onnx==1.19.0
+onnxruntime==1.23.0
+onnxruntime-gpu==1.23.0
+
+# Machine Learning & Data Science
+numpy==2.3.3
+scipy==1.16.2
+scikit-learn==1.7.2
+pandas==2.3.3
+numba==0.62.1
+llvmlite==0.45.1
 
 # Vector Search & Indexing
-faiss-cpu==1.7.3
+faiss-cpu==1.12.0
 umap-learn==0.5.9.post2
 pynndescent==0.5.13
 
-# Cloud Storage & Aliyun
+# Hydra Configuration
+hydra-core==1.3.2
+omegaconf==2.3.0
+
+# Aliyun Cloud Storage
 oss2==2.19.1
 aliyun-python-sdk-core==2.16.0
 aliyun-python-sdk-kms==2.16.5
 
-# Utilities
-pydantic==2.11.10
-pydantic_core==2.33.2
-tqdm==4.67.1
-tqdm_joblib==0.0.5
-click==8.3.0
-typer==0.19.2
-rich==14.1.0
-coloredlogs==15.0.1
-colorama==0.4.6
-loguru==0.7.3
+# Gradio UI
+gradio==5.49.0
+gradio_client==1.13.3
 
-# File & Data Handling
-PyYAML==6.0.3
-jsonlines==1.2.0
-tomlkit==0.13.3
-orjson==3.11.3
-simplejson==3.20.2
-
-# Compression & Encoding
-Brotli==1.1.0
-xxhash==3.6.0
-bitarray==3.7.1
-
-# Cryptography & Security
-cryptography==46.0.2
-pycryptodome==3.23.0
-certifi==2025.10.5
-
-# Date & Time
-python-dateutil==2.9.0.post0
-dateparser==1.1.8
-pytz==2025.2
-tzdata==2025.2
-tzlocal==5.3.1
-
-# Media Processing
-av==15.1.0
-ffmpeg-python==0.2.0
-ffmpy==0.6.1
-pillow==11.3.0
-
-# Web Framework & Template
+# Web Framework
 Flask==3.1.2
 Jinja2==3.1.6
 MarkupSafe==3.0.3
@@ -190,6 +189,49 @@ itsdangerous==2.2.0
 tensorboard==2.20.0
 tensorboard-data-server==0.7.2
 tensorboardX==2.6.4
+loguru==0.7.3
+coloredlogs==15.0.1
+colorama==0.4.6
+rich==14.1.0
+
+# Utilities
+click==8.3.0
+typer==0.19.2
+tqdm==4.67.1
+joblib==1.5.2
+filelock==3.19.1
+fsspec==2025.9.0
+pooch==1.8.2
+platformdirs==4.4.0
+packaging==25.0
+typing_extensions==4.15.0
+
+# File & Data Handling
+PyYAML==6.0.3
+jsonlines==1.2.0
+tomlkit==0.13.3
+orjson==3.11.3
+
+# Compression & Encoding
+Brotli==1.1.0
+xxhash==3.6.0
+
+# Cryptography & Security
+cryptography==46.0.2
+pycryptodome==3.23.0
+
+# Date & Time
+python-dateutil==2.9.0.post0
+dateparser==1.1.8
+pytz==2025.2
+tzdata==2025.2
+tzlocal==5.3.1
+
+# Database
+asyncpg==0.30.0
+psycopg-binary==3.2.10
+psycopg-pool==3.2.6
+influxdb-client==1.49.0
 
 # Code Quality & Pre-commit
 pre_commit==4.3.0
@@ -198,90 +240,52 @@ identify==2.6.15
 nodeenv==1.9.1
 virtualenv==20.34.0
 
-# NLP & Tokenization
-spacy-legacy==3.0.12
-wasabi==1.1.3
-weasel==0.4.1
-cymem==2.0.11
-preshed==3.0.10
-murmurhash==1.0.13
-thinc==8.3.4
-blis==1.2.1
-catalogue==2.0.10
-srsly==2.5.1
-confection==0.1.5
-langcodes==3.5.0
-language_data==1.3.0
-
 # Text Utilities
 marisa-trie==1.3.1
 regex==2025.9.18
 editdistance==0.8.1
 python-crfsuite==0.9.11
-
-# Miscellaneous
-joblib==1.5.2
-filelock==3.19.1
-fsspec==2025.9.0
-pooch==1.8.2
-platformdirs==4.4.0
-packaging==25.0
-typing_extensions==4.15.0
-typing-inspection==0.4.2
-more-itertools==10.8.0
-six==1.17.0
-decorator==5.2.1
-docopt==0.6.2
-tabulate==0.9.0
-smart_open==7.3.1
-cloudpathlib==0.22.0
-
-# Protobuf & gRPC
-protobuf==6.32.1
-grpcio==1.75.1
-flatbuffers==25.9.23
-
-# Mathematical Libraries
-sympy==1.13.1
-mpmath==1.3.0
-numba==0.62.1
-llvmlite==0.45.1
-
-# Threading & Concurrency
-Pebble==5.1.3
-psutil==7.1.0
-portalocker==3.2.0
-
-# Windows-Specific
-pywin32==311
-pyreadline3==3.5.4
-win32_setctime==1.2.0
+fuzzywuzzy==0.18.0
 
 # Parsing & Compilation
 lxml==6.0.2
-antlr4-python3-runtime==4.8
-pyparsing==3.2.5
+antlr4-python3-runtime==4.9.3
+
+# Protobuf & gRPC
+protobuf==5.29.5
+grpcio==1.75.1
+grpcio-status==1.71.2
+flatbuffers==25.9.23
+
+# Web Scraping
+beautifulsoup4==4.14.2
+bs4==0.0.2
+soupsieve==2.8
+
+# Cloud & Storage
+google-cloud-resource-manager==1.14.2
+google-resumable-media==2.7.2
+googleapis-common-protos==1.70.0
+grpc-google-iam-v1==0.14.2
+google-crc32c==1.7.1
+
+# Threading & Concurrency
+psutil==7.1.0
+portalocker==3.2.0
+threadpoolctl==3.6.0
 
 # Data Formats
 pyarrow==21.0.0
 msgpack==1.1.1
-Cython==3.1.4
-
-# HTTP & Web Utilities
-urllib3==2.5.0
-idna==3.10
-charset-normalizer==3.4.3
-anyio==4.11.0
-sniffio==1.3.1
-certifi==2025.10.5
 
 # Async & Networking
-yarl==1.20.1
-multidict==6.6.4
-frozenlist==1.7.0
+yarl==1.22.0
+multidict==6.7.0
+frozenlist==1.8.0
 propcache==0.4.0
-aiosignal==1.4.0
-attrs==25.3.0
+attrs==25.4.0
+anyio==4.11.0
+sniffio==1.3.1
 
 # Markdown & Documentation
 Markdown==3.9
@@ -289,54 +293,104 @@ markdown-it-py==4.0.0
 mdurl==0.1.2
 Pygments==2.19.2
 
-# Visualization
-matplotlib==3.10.6
-fonttools==4.60.1
-kiwisolver==1.4.9
-cycler==0.12.1
-contourpy==1.3.3
-
-# TensorFlow Data
-ml_dtypes==0.5.3
-absl-py==2.3.1
+# Media Processing
+pillow==11.3.0
 
 # Additional Utilities
-addict==2.4.0
 babel==2.17.0
 blinker==1.9.0
 cffi==2.0.0
 cfgv==3.4.0
-cm-time==0.1.2
-coqpit==0.0.17
 crcmod==1.7
 Deprecated==1.2.18
-dill==0.3.8
+dill==0.4.0
 distlib==0.4.0
 distro==1.9.0
+docopt==0.6.2
+docstring_parser==0.17.0
 groovy==0.1.2
 humanfriendly==10.0
 importlib_metadata==8.7.0
 jiter==0.11.0
 jmespath==0.10.0
 lazy_loader==0.4
+more-itertools==10.8.0
 multiprocess==0.70.16
-networkx==2.8.8
-pkuseg==0.0.25
+networkx==3.5
 pycparser==2.23
-resemble-perth==1.0.1
-s3tokenizer==0.2.0
 safehttpx==0.1.6
 semantic-version==2.10.0
 shellingham==1.5.4
-sortedcontainers==2.4.0
-spaces==0.42.1
-threadpoolctl==3.6.0
-trainer==0.0.36
+six==1.17.0
+smart_open==7.3.1
+cloudpathlib==0.22.0
+tabulate==0.9.0
 typeguard==4.4.4
 watchfiles==1.1.0
-wetext==0.1.0
 wrapt==1.17.3
 zipp==3.23.0
 
-# GUI (if needed)
-PySimpleGUI-4-foss==4.60.4.1
+# Mathematical Libraries
+sympy==1.14.0
+
+# ML Utilities
+ml_dtypes==0.5.3
+absl-py==2.3.1
+cachetools==6.2.0
+lightning-utilities==0.15.2
+tenacity==9.1.2
+
+# Development Tools
+ipdb==0.13.13
+ipython==9.6.0
+ipython_pygments_lexers==1.1.1
+jedi==0.19.2
+matplotlib-inline==0.1.7
+prompt_toolkit==3.0.52
+stack-data==0.6.3
+traitlets==5.14.3
+wcwidth==0.2.14
+pytest==8.4.2
+pluggy==1.6.0
+iniconfig==2.1.1
+tomli==2.2.1
+
+# System Utilities
+pexpect==4.9.0
+ptyprocess==0.7.0
+pure_eval==0.2.3
+executing==2.2.1
+asttokens==3.0.0
+decorator==5.2.1
+parso==0.8.5
+
+# Protocol & Authentication
+proto-plus==1.26.1
+pyasn1==0.6.1
+pyasn1_modules==0.4.2
+rsa==4.9.1
+
+# Async Utilities
+async-timeout==5.0.1
+reactivex==4.0.4
+
+# Geo & Spatial
+shapely==2.1.2
+
+# XET & Version Control
+hf-xet==1.1.10
+
+# Elasticsearch Transport
+elastic-transport==8.17.1
+
+# Qutils
+qutils==0.0.31
+
+# Future Compatibility
+future==1.0.0
+exceptiongroup==1.3.0
+
+# Additional Type Checking
+annotated-types==0.7.0
+typing-inspection==0.4.2
+
