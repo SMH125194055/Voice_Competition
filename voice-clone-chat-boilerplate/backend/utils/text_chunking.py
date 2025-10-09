@@ -188,3 +188,4 @@ def get_word_timestamps(text: str, chunk_info: List[Tuple[str, int, int]]) -> Li
     return word_timestamps
 
 
+

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useMicVAD } from '@ricky0123/vad-react';
 import './VADVoiceAgent.css';
 
@@ -24,13 +24,58 @@ const VADVoiceAgent = () => {
   const [currentPhase, setCurrentPhase] = useState('');
   const [chunkProgress, setChunkProgress] = useState({ current: 0, total: 0 });
   
+  // NEW: Voice mode and interruption settings
+  const [voiceMode, setVoiceMode] = useState('inference'); // 'inference' or 'real-time'
+  const [allowInterruption, setAllowInterruption] = useState(true);
+  const [referenceVoiceId, setReferenceVoiceId] = useState(null);
+  const [referenceVoices, setReferenceVoices] = useState([]);
+  const [isRecordingReference, setIsRecordingReference] = useState(false);
+  const [showReferenceModal, setShowReferenceModal] = useState(false);
+  const [isSettingsExpanded, setIsSettingsExpanded] = useState(true); // Settings panel expanded by default
+  
+  // Audio player states
+  const [isPlayingReference, setIsPlayingReference] = useState(false);
+  const [referenceAudioProgress, setReferenceAudioProgress] = useState(0);
+  const [referenceAudioDuration, setReferenceAudioDuration] = useState(0);
+  
+  // VAD sensitivity fixed to HIGH for best noise resistance
+  const vadSensitivity = 'high';
+  
   // Refs
   const audioQueueRef = useRef([]);
   const isPlayingRef = useRef(false);
   const abortControllerRef = useRef(null);
   const currentAudioRef = useRef(null);
+  const referenceRecorderRef = useRef(null);
+  const referenceAudioChunksRef = useRef([]);
+  const isInterruptedRef = useRef(false); // Flag to track if current stream was interrupted
+  const referencePlayerRef = useRef(null); // Reference audio player
   
-  // VAD Configuration  
+  // VAD sensitivity configurations - Higher thresholds = Less sensitive (better for noisy environments)
+  const vadConfigs = useMemo(() => ({
+    low: {  // Very sensitive - will detect quiet speech but may trigger on noise
+      positiveSpeechThreshold: 0.5,
+      negativeSpeechThreshold: 0.35,
+      minSpeechFrames: 3,
+      redemptionFrames: 8,
+    },
+    medium: {  // Balanced - good for normal environments
+      positiveSpeechThreshold: 0.7,
+      negativeSpeechThreshold: 0.5,
+      minSpeechFrames: 5,
+      redemptionFrames: 8,
+    },
+    high: {  // Less sensitive - better for noisy environments, requires louder/clearer speech
+      positiveSpeechThreshold: 0.85,
+      negativeSpeechThreshold: 0.65,
+      minSpeechFrames: 8,
+      redemptionFrames: 10,
+    },
+  }), []);
+  
+  // VAD Configuration with dynamic sensitivity
+  const currentVadConfig = vadConfigs[vadSensitivity];
+  
   const vad = useMicVAD({
     startOnLoad: false,
     modelName: 'silero_vad_v5',
@@ -47,7 +92,14 @@ const VADVoiceAgent = () => {
       };
     },
     onSpeechStart: () => {
-      console.log('🎤 Speech detected!');
+      console.log('🎤 Speech detected! (Sensitivity:', vadSensitivity, ')');
+      
+      // Handle interruption if AI is speaking OR processing and interruption is allowed
+      if ((isAISpeaking || isProcessing) && allowInterruption) {
+        console.log('🛑 Interruption detected! Stopping AI/Processing...');
+        stopAISpeaking(); // This will also stop processing
+      }
+      
       setIsSpeaking(true);
       setStatus('Listening to you...');
     },
@@ -58,14 +110,14 @@ const VADVoiceAgent = () => {
       processAudioDataStreaming(audio);
     },
     onVADMisfire: () => {
-      console.log('❌ VAD misfire');
+      console.log('❌ VAD misfire (Sensitivity:', vadSensitivity, ')');
       setIsSpeaking(false);
       setStatus('Listening...');
     },
-    positiveSpeechThreshold: 0.6,
-    negativeSpeechThreshold: 0.5,
-    minSpeechFrames: 5,
-    redemptionFrames: 8,
+    positiveSpeechThreshold: currentVadConfig.positiveSpeechThreshold,
+    negativeSpeechThreshold: currentVadConfig.negativeSpeechThreshold,
+    minSpeechFrames: currentVadConfig.minSpeechFrames,
+    redemptionFrames: currentVadConfig.redemptionFrames,
     preSpeechPadFrames: 1,
     submitUserSpeechOnPause: true,
   });
@@ -203,9 +255,9 @@ const VADVoiceAgent = () => {
   // Process audio queue
   const processAudioQueue = async () => {
     if (isPlayingRef.current || audioQueueRef.current.length === 0) {
-      return;
-    }
-    
+        return;
+      }
+      
     isPlayingRef.current = true;
     setIsAISpeaking(true);
     
@@ -230,7 +282,8 @@ const VADVoiceAgent = () => {
     setIsAISpeaking(false);
     setCurrentWordIndex(-1);
     
-    // Save to history - ALWAYS save when both texts exist
+    // Save to history - Use ONLY transcription and LLM response (NOT streaming words)
+    // This ensures we get the complete, original text from backend
     if (currentUserText && currentAIText) {
       const newConversation = {
         user: currentUserText,
@@ -238,7 +291,12 @@ const VADVoiceAgent = () => {
         timestamp: new Date()
       };
       
-      console.log('💾 Saving to history:', newConversation);
+      console.log('💾 Saving complete conversation to history (from transcription/LLM):', {
+        userLength: currentUserText.length,
+        aiLength: currentAIText.length,
+        userPreview: currentUserText.substring(0, 50),
+        aiPreview: currentAIText.substring(0, 50)
+      });
       
       setConversationHistory(prev => {
         const updated = [...prev, newConversation];
@@ -251,6 +309,11 @@ const VADVoiceAgent = () => {
       setCurrentAIText('');
       setStreamingUserWords([]);
       setStreamingAIWords([]);
+    } else {
+      console.warn('⚠️ Cannot save conversation: missing user or AI text', {
+        hasUserText: !!currentUserText,
+        hasAIText: !!currentAIText
+      });
     }
     
     setStatus(isListening ? 'Listening...' : 'Ready');
@@ -274,7 +337,17 @@ const VADVoiceAgent = () => {
   
   // Stop AI speaking
   const stopAISpeaking = () => {
-    console.log('🛑 Stopping AI speech...');
+    console.log('🛑 Stopping AI speech completely...');
+    
+    // Set interruption flag to prevent new chunks from being processed
+    isInterruptedRef.current = true;
+    
+    // ⚠️ CRITICAL: Abort the SSE connection to stop backend from sending more chunks
+    if (abortControllerRef.current) {
+      console.log('⚠️ Aborting SSE stream...');
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
     
     // Stop current audio
     if (currentAudioRef.current) {
@@ -282,23 +355,30 @@ const VADVoiceAgent = () => {
       currentAudioRef.current = null;
     }
     
-    // Clear queue
+    // Clear queue immediately
     audioQueueRef.current = [];
     isPlayingRef.current = false;
     setIsAISpeaking(false);
+    setIsProcessing(false);
     setCurrentWordIndex(-1);
     setChunkProgress({ current: 0, total: 0 });
+    setCurrentPhase('');
     
-    // Save partial conversation to history if we have both texts
-    if (currentUserText && (currentAIText || streamingAIWords.length > 0)) {
-      const aiText = currentAIText || streamingAIWords.join(' ');
+    // Save interrupted conversation with COMPLETE AI response from backend (NO [interrupted] tag)
+    if (currentUserText && currentAIText) {
+      // Use currentAIText which contains the COMPLETE response from backend
+      // Show full response even if voice was interrupted
       const partialConv = {
         user: currentUserText,
-        ai: aiText,
+        ai: currentAIText, // Complete LLM response WITHOUT [interrupted] tag
         timestamp: new Date()
       };
       
-      console.log('💾 Saving partial to history:', partialConv);
+      console.log('💾 Saving interrupted conversation (complete LLM response - no tag):', {
+        userLength: currentUserText.length,
+        aiLength: currentAIText.length,
+        aiTextPreview: currentAIText.substring(0, 50) + '...'
+      });
       
       setConversationHistory(prev => {
         const updated = [...prev, partialConv];
@@ -316,6 +396,270 @@ const VADVoiceAgent = () => {
     setStatus(isListening ? 'Listening...' : 'Ready');
   };
   
+  // ============================================
+  // REFERENCE VOICE MANAGEMENT FUNCTIONS
+  // ============================================
+  
+  // Load reference voices on component mount
+  useEffect(() => {
+    loadReferenceVoices();
+  }, []);
+  
+  const loadReferenceVoices = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/list-reference-voices`);
+      const data = await response.json();
+      setReferenceVoices(data.voices || []);
+      
+      // Auto-select first voice if in inference mode and no voice selected
+      if (voiceMode === 'inference' && !referenceVoiceId && data.voices.length > 0) {
+        setReferenceVoiceId(data.voices[0].id);
+      }
+    } catch (error) {
+      console.error('Failed to load reference voices:', error);
+    }
+  };
+  
+  const startReferenceRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      referenceRecorderRef.current = mediaRecorder;
+      referenceAudioChunksRef.current = [];
+      
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          referenceAudioChunksRef.current.push(event.data);
+        }
+      };
+      
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(referenceAudioChunksRef.current, { type: 'audio/webm' });
+        await uploadReferenceVoice(audioBlob);
+        stream.getTracks().forEach(track => track.stop());
+      };
+      
+      mediaRecorder.start();
+      setIsRecordingReference(true);
+      console.log('🎙️ Recording reference voice...');
+    } catch (error) {
+      console.error('Failed to start recording:', error);
+      alert('Failed to access microphone. Please check permissions.');
+    }
+  };
+  
+  const stopReferenceRecording = () => {
+    if (referenceRecorderRef.current && referenceRecorderRef.current.state !== 'inactive') {
+      referenceRecorderRef.current.stop();
+      setIsRecordingReference(false);
+      console.log('🛑 Stopped recording reference voice');
+    }
+  };
+  
+  const uploadReferenceVoice = async (audioBlob) => {
+    try {
+      const formData = new FormData();
+      formData.append('audio', audioBlob, 'reference.webm');
+      
+      const response = await fetch(`${API_BASE_URL}/upload-reference-voice`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        console.log('✅ Reference voice uploaded:', data.reference_voice_id);
+        await loadReferenceVoices();
+        setReferenceVoiceId(data.reference_voice_id);
+        alert(`Reference voice saved! Duration: ${data.duration}s`);
+      } else {
+        throw new Error(data.error || 'Upload failed');
+      }
+    } catch (error) {
+      console.error('Failed to upload reference voice:', error);
+      alert('Failed to upload reference voice. Please try again.');
+    }
+  };
+  
+  const deleteReferenceVoice = async (voiceId) => {
+    if (!window.confirm('Delete this reference voice?')) return;
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/delete-reference-voice/${voiceId}`, {
+        method: 'DELETE'
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        console.log('🗑️ Deleted reference voice:', voiceId);
+        await loadReferenceVoices();
+        
+        // Clear selection if deleted voice was selected
+        if (referenceVoiceId === voiceId) {
+          setReferenceVoiceId(null);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to delete reference voice:', error);
+      alert('Failed to delete reference voice.');
+    }
+  };
+  
+  const handleFileUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    console.log('📤 Uploading file:', file.name);
+    await uploadReferenceVoice(file);
+    
+    // Reset file input
+    event.target.value = '';
+  };
+  
+  // Initialize reference audio player
+  const initializeReferencePlayer = () => {
+    if (!referenceVoiceId || !referencePlayerRef.current) return;
+    
+    const voice = referenceVoices.find(v => v.id === referenceVoiceId);
+    if (!voice) return;
+    
+    // Add timestamp to force reload and prevent caching issues
+    const audioUrl = `${API_BASE_URL}/audio/reference_voices/${voice.filename}?t=${Date.now()}`;
+    
+    // Reset player state
+    setIsPlayingReference(false);
+    setReferenceAudioProgress(0);
+    setReferenceAudioDuration(0);
+    
+    // Load new audio
+    referencePlayerRef.current.src = audioUrl;
+    referencePlayerRef.current.load(); // Force reload
+    
+    // Set up event listeners
+    referencePlayerRef.current.onloadedmetadata = () => {
+      setReferenceAudioDuration(referencePlayerRef.current.duration);
+      console.log('🎵 Audio loaded:', voice.id, 'Duration:', referencePlayerRef.current.duration);
+    };
+    
+    referencePlayerRef.current.ontimeupdate = () => {
+      setReferenceAudioProgress(referencePlayerRef.current.currentTime);
+    };
+    
+    referencePlayerRef.current.onended = () => {
+      setIsPlayingReference(false);
+      setReferenceAudioProgress(0);
+    };
+    
+    referencePlayerRef.current.onplay = () => {
+      setIsPlayingReference(true);
+    };
+    
+    referencePlayerRef.current.onpause = () => {
+      setIsPlayingReference(false);
+    };
+    
+    referencePlayerRef.current.onerror = (e) => {
+      console.error('🔴 Audio player error:', e);
+      setIsPlayingReference(false);
+      // Retry loading
+      setTimeout(() => {
+        if (referencePlayerRef.current) {
+          referencePlayerRef.current.load();
+        }
+      }, 500);
+    };
+  };
+  
+  // Play/pause reference voice
+  const togglePlayReferenceVoice = () => {
+    if (!referencePlayerRef.current) return;
+    
+    if (isPlayingReference) {
+      referencePlayerRef.current.pause();
+    } else {
+      // Reload audio from start if it's stuck or ended
+      if (referencePlayerRef.current.ended || referencePlayerRef.current.error) {
+        console.log('🔄 Reloading stuck audio...');
+        initializeReferencePlayer();
+        // Wait for audio to load before playing
+        setTimeout(() => {
+          if (referencePlayerRef.current) {
+            referencePlayerRef.current.play().catch(err => {
+              console.error('Play error:', err);
+            });
+          }
+        }, 200);
+      } else {
+        referencePlayerRef.current.play().catch(err => {
+          console.error('Play error:', err);
+          // If play fails, try reloading
+          initializeReferencePlayer();
+        });
+      }
+    }
+  };
+  
+  // Seek in reference audio
+  const seekReferenceAudio = (time) => {
+    if (!referencePlayerRef.current) return;
+    referencePlayerRef.current.currentTime = time;
+    setReferenceAudioProgress(time);
+  };
+  
+  // Stop reference audio
+  const stopReferenceAudio = () => {
+    if (!referencePlayerRef.current) return;
+    referencePlayerRef.current.pause();
+    referencePlayerRef.current.currentTime = 0;
+    setIsPlayingReference(false);
+    setReferenceAudioProgress(0);
+  };
+  
+  // Initialize player when reference voice changes
+  useEffect(() => {
+    if (referenceVoiceId && referencePlayerRef.current) {
+      initializeReferencePlayer();
+    }
+  }, [referenceVoiceId, referenceVoices]);
+  
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      console.log('🧹 Cleaning up VAD Voice Agent...');
+      
+      // Stop and cleanup reference audio player
+      if (referencePlayerRef.current) {
+        referencePlayerRef.current.pause();
+        referencePlayerRef.current.src = '';
+      }
+      
+      // Stop current AI audio
+      if (currentAudioRef.current) {
+        currentAudioRef.current.pause();
+        currentAudioRef.current = null;
+      }
+      
+      // Abort any ongoing SSE stream
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+      
+      // Stop reference recording if active
+      if (referenceRecorderRef.current && referenceRecorderRef.current.state !== 'inactive') {
+        referenceRecorderRef.current.stop();
+      }
+      
+      // Clear audio queue
+      audioQueueRef.current = [];
+      isPlayingRef.current = false;
+      
+      console.log('✅ Cleanup complete');
+    };
+  }, []);
+  
   // Process audio with SSE streaming
   const processAudioDataStreaming = async (audioData) => {
     if (isProcessing || isAISpeaking) {
@@ -324,6 +668,9 @@ const VADVoiceAgent = () => {
     }
     
     try {
+      // Reset interruption flag for new conversation
+      isInterruptedRef.current = false;
+      
       setIsProcessing(true);
       setError(null);
       setCurrentUserText('');
@@ -349,6 +696,15 @@ const VADVoiceAgent = () => {
       
       const formData = new FormData();
       formData.append('audio', new File([wavBlob], 'speech.wav', { type: 'audio/wav' }));
+      formData.append('voice_mode', voiceMode);
+      formData.append('allow_interruption', allowInterruption.toString());
+      
+      // Add reference voice ID if in inference mode
+      if (voiceMode === 'inference' && referenceVoiceId) {
+        formData.append('reference_voice_id', referenceVoiceId);
+      }
+      
+      console.log(`🎙️ Voice mode: ${voiceMode}, Interruption: ${allowInterruption}`);
       
       abortControllerRef.current = new AbortController();
       
@@ -382,8 +738,14 @@ const VADVoiceAgent = () => {
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
         
+        let currentEvent = '';
+        
         for (const line of lines) {
-          if (line.startsWith('event:')) continue;
+          // Track the current event type
+          if (line.startsWith('event:')) {
+            currentEvent = line.substring(6).trim();
+            continue;
+          }
           
           if (line.startsWith('data:')) {
             const data = JSON.parse(line.substring(6).trim());
@@ -394,29 +756,42 @@ const VADVoiceAgent = () => {
               setStatus(`✅ Speech detected (${data.duration}s)`);
             }
             
-            // User transcription
-            if (data.text && !userTextReceived && !data.audio) {
+            // User transcription - ONLY from transcription_complete event
+            if (currentEvent === 'transcription_complete' && data.text) {
               setCurrentPhase('transcription');
               userTextReceived = data.text;
               setCurrentUserText(data.text);
               setStatus('📝 You said...');
               
-              // Stream user text word by word
-              await streamTextWords(data.text, setStreamingUserWords, 60);
-              console.log('💬 User:', data.text);
+              // Display user text immediately (no streaming delay)
+              const words = data.text.split(' ');
+              setStreamingUserWords(words);
+              console.log('💬 USER TRANSCRIPTION (from transcription_complete event):', data.text);
+              console.log('🔍 userTextReceived is now:', userTextReceived);
             }
             
-            // AI response
-            if (data.text && userTextReceived && !aiTextReceived && !data.audio) {
-                  setCurrentPhase('llm');
+            // AI response - ONLY from llm_complete event
+            if (currentEvent === 'llm_complete' && data.text) {
+              setCurrentPhase('llm');
               aiTextReceived = data.text;
               setCurrentAIText(data.text);
               setStatus('🤖 AI responding...');
-              console.log('🤖 AI:', data.text);
+              console.log('🤖 LLM RESPONSE (from llm_complete event):', data.text);
+              console.log('🔍 Check if different from user:', {
+                user: userTextReceived,
+                ai: data.text,
+                areSame: userTextReceived === data.text
+              });
             }
             
             // TTS chunks
             if (data.audio) {
+              // ⚠️ Check if stream was interrupted - skip adding chunks if true
+              if (isInterruptedRef.current) {
+                console.log('⏭️ Skipping chunk due to interruption');
+                return; // Stop processing this stream
+              }
+              
                   setCurrentPhase('tts');
               setChunkProgress({ current: data.chunk_index, total: data.total_chunks });
               setStatus(`🔊 Speaking (${data.chunk_index + 1}/${data.total_chunks})...`);
@@ -502,6 +877,193 @@ const VADVoiceAgent = () => {
         </div>
       </div>
       
+      {/* Settings Panel - Collapsible */}
+      <div className={`settings-panel ${isSettingsExpanded ? 'expanded' : 'collapsed'}`}>
+        <div className="settings-header" onClick={() => setIsSettingsExpanded(!isSettingsExpanded)}>
+          <h3>⚙️ Settings</h3>
+          <button className="settings-toggle-btn">
+            {isSettingsExpanded ? '▲ Hide' : '▼ Show'}
+          </button>
+          </div>
+          
+        {isSettingsExpanded && (
+          <div className="settings-content">
+            {/* Voice Mode Toggle */}
+            <div className="setting-group">
+              <label className="setting-label">Voice Mode:</label>
+              <div className="toggle-capsule">
+          <button 
+                  className={`capsule-btn ${voiceMode === 'inference' ? 'active' : ''}`}
+                  onClick={() => setVoiceMode('inference')}
+                  disabled={isListening || isProcessing || isAISpeaking}
+                >
+                  🎙️ Inference Voice
+          </button>
+          <button 
+                  className={`capsule-btn ${voiceMode === 'real-time' ? 'active' : ''}`}
+                  onClick={() => setVoiceMode('real-time')}
+                  disabled={isListening || isProcessing || isAISpeaking}
+                >
+                  🎤 Real-Time Voice
+          </button>
+              </div>
+              <div className="setting-description">
+                {voiceMode === 'inference' 
+                  ? '✓ Using pre-recorded reference voice for AI responses' 
+                  : '✓ Using your current voice for AI responses'}
+        </div>
+      </div>
+      
+            {/* Reference Voice Management (shown only in inference mode) */}
+            {voiceMode === 'inference' && (
+              <div className="setting-group">
+                <label className="setting-label">Reference Voice:</label>
+                
+                {/* Recording Prompt */}
+                {!isRecordingReference && referenceVoices.length === 0 && (
+                  <div className="recording-prompt">
+                    <p>📝 <strong>Record your reference voice:</strong></p>
+                    <p>Say something like: "Hello, this is my voice for testing the AI assistant. I'm speaking clearly and naturally."</p>
+                    <p>Speak for <strong>3-5 seconds</strong> in a quiet environment.</p>
+            </div>
+                )}
+                
+                <div className="reference-voice-controls">
+                  <select
+                    className="reference-voice-select"
+                    value={referenceVoiceId || ''}
+                    onChange={(e) => setReferenceVoiceId(e.target.value)}
+                    disabled={isListening || isProcessing || isAISpeaking}
+                  >
+                    <option value="">Select a reference voice...</option>
+                    {referenceVoices.map((voice) => (
+                      <option key={voice.id} value={voice.id}>
+                        {voice.id} ({(voice.size / 1024).toFixed(0)}KB)
+                      </option>
+                    ))}
+                  </select>
+                  
+                  <button
+                    className="btn-record-ref"
+                    onClick={isRecordingReference ? stopReferenceRecording : startReferenceRecording}
+                    disabled={isListening || isProcessing || isAISpeaking}
+                  >
+                    {isRecordingReference ? '⏹️ Stop' : '🎤 Record'}
+                  </button>
+                  
+                  <label className="btn-upload-ref" title="Upload audio file">
+                    📁 Upload
+                    <input
+                      type="file"
+                      accept="audio/*"
+                      onChange={handleFileUpload}
+                      disabled={isListening || isProcessing || isAISpeaking}
+                      style={{ display: 'none' }}
+                    />
+                  </label>
+                  
+                  {referenceVoiceId && (
+                    <button
+                      className="btn-delete-ref"
+                      onClick={() => deleteReferenceVoice(referenceVoiceId)}
+                      disabled={isListening || isProcessing || isAISpeaking}
+                      title="Delete reference voice"
+                    >
+                      🗑️
+                    </button>
+                  )}
+          </div>
+          
+                {/* Audio Player for Reference Voice */}
+                {referenceVoiceId && (
+                  <div className="reference-audio-player">
+                    <audio ref={referencePlayerRef} style={{ display: 'none' }} />
+                    
+                    <div className="player-controls">
+                      <button
+                        className="player-btn play-pause-btn"
+                        onClick={togglePlayReferenceVoice}
+                        disabled={isListening || isProcessing || isAISpeaking}
+                        title={isPlayingReference ? "Pause" : "Play"}
+                      >
+                        {isPlayingReference ? '⏸️' : '▶️'}
+                      </button>
+                      
+                      <div className="player-timeline">
+                        <input
+                          type="range"
+                          min="0"
+                          max={referenceAudioDuration || 100}
+                          value={referenceAudioProgress}
+                          onChange={(e) => seekReferenceAudio(parseFloat(e.target.value))}
+                          className="timeline-slider"
+                          disabled={isListening || isProcessing || isAISpeaking}
+                        />
+                        <div className="player-time">
+                          <span className="current-time">
+                            {Math.floor(referenceAudioProgress / 60)}:{String(Math.floor(referenceAudioProgress % 60)).padStart(2, '0')}
+                          </span>
+                          <span className="duration-time">
+                            {Math.floor(referenceAudioDuration / 60)}:{String(Math.floor(referenceAudioDuration % 60)).padStart(2, '0')}
+                          </span>
+                        </div>
+          </div>
+          
+                      <button
+                        className="player-btn stop-btn"
+                        onClick={stopReferenceAudio}
+                        disabled={isListening || isProcessing || isAISpeaking}
+                        title="Stop"
+                      >
+                        ⏹️
+                      </button>
+            </div>
+                </div>
+              )}
+                
+                {isRecordingReference && (
+                  <div className="recording-indicator">
+                    <span className="recording-dot"></span>
+                    Recording... Speak clearly for 3-5 seconds.
+            </div>
+                )}
+                
+                {!referenceVoiceId && referenceVoices.length === 0 && !isRecordingReference && (
+                  <div className="setting-description warning">
+                    ⚠️ No reference voices available. Please record or upload one.
+          </div>
+                )}
+        </div>
+            )}
+            
+            {/* Allow Interruption Toggle */}
+            <div className="setting-group">
+              <label className="setting-label">Allow Interruption (VAD):</label>
+              <div className="toggle-switch">
+                <input
+                  type="checkbox"
+                  id="allow-interruption"
+                  checked={allowInterruption}
+                  onChange={(e) => setAllowInterruption(e.target.checked)}
+                  disabled={isListening || isProcessing || isAISpeaking}
+                />
+                <label htmlFor="allow-interruption" className="switch-label">
+                  <span className="switch-slider"></span>
+                </label>
+                <span className="toggle-text">
+                  {allowInterruption ? 'Enabled' : 'Disabled'}
+                </span>
+            </div>
+              <div className="setting-description">
+                {allowInterruption 
+                  ? '✓ AI will stop speaking when you start talking' 
+                  : '✗ AI will continue speaking even if you talk'}
+            </div>
+            </div>
+          </div>
+        )}
+      </div>
+      
       {/* Main Voice Circles Area */}
       <div className="voice-circles-container">
         {/* Human Circle (Left) */}
@@ -559,7 +1121,7 @@ const VADVoiceAgent = () => {
                 <span className={`dot ${currentPhase === 'transcription' ? 'active' : ['llm', 'tts', 'complete'].includes(currentPhase) ? 'done' : ''}`} title="STT"></span>
                 <span className={`dot ${currentPhase === 'llm' ? 'active' : ['tts', 'complete'].includes(currentPhase) ? 'done' : ''}`} title="LLM"></span>
                 <span className={`dot ${['tts', 'complete'].includes(currentPhase) ? 'active' : ''}`} title="TTS"></span>
-              </div>
+            </div>
             )}
             
             {chunkProgress.total > 0 && (
@@ -573,11 +1135,11 @@ const VADVoiceAgent = () => {
                 <span className="progress-label">
                   {chunkProgress.current}/{chunkProgress.total}
                 </span>
-              </div>
-            )}
+                </div>
+              )}
           </div>
         </div>
-
+        
         {/* AI Circle (Right) */}
         <div className={`voice-circle ai-circle ${isAISpeaking ? 'active' : ''}`}>
           <div className="circle-content">
@@ -661,11 +1223,11 @@ const VADVoiceAgent = () => {
                           <span className="message-time">
                             {conv.timestamp.toLocaleTimeString()}
                           </span>
-                        </div>
+                </div>
                         <div className="message-text">{conv.user}</div>
-                      </div>
-                    </div>
                   </div>
+                </div>
+              </div>
 
                   {/* AI Message (Right) */}
                   <div className="message-row right">
@@ -706,7 +1268,7 @@ const VADVoiceAgent = () => {
         <div className="feature-item">
           <span className="feature-icon">🎯</span>
           <span className="feature-label">Smart VAD</span>
-        </div>
+      </div>
       </div>
     </div>
   );

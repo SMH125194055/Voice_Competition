@@ -65,6 +65,10 @@ VOICE_CLONE_AUDIO = os.getenv("VOICE_CLONE_AUDIO", "audio/Nafay_Org.mp3")
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
 TRANSCRIPTION_MODE = os.getenv("TRANSCRIPTION_MODE", "parallel")  # "parallel" or "sequential"
 
+# Reference voice storage directory
+REFERENCE_VOICE_DIR = "audio/reference_voices"
+os.makedirs(REFERENCE_VOICE_DIR, exist_ok=True)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -692,18 +696,28 @@ async def vad_chat_voice(audio: UploadFile = File(...)):
 
 # Endpoint 7: Streaming VAD Chat with Voice Cloning and Chunked TTS (SSE)
 @app.post("/vad-chat-voice-stream")
-async def vad_chat_voice_stream(audio: UploadFile = File(...)):
+async def vad_chat_voice_stream(
+    audio: UploadFile = File(...),
+    voice_mode: str = Form("real-time"),  # "real-time" or "inference"
+    reference_voice_id: str = Form(None),  # Optional reference voice ID for inference mode
+    allow_interruption: str = Form("true")  # "true" or "false" for VAD interruption
+):
     """
     🚀 STREAMING conversation endpoint using Server-Sent Events (SSE).
     
-    ⭐ NEW FEATURES:
-    1. Uses user's voice as reference for TTS cloning
-    2. Streams transcription progressively  
-    3. Chunks LLM response and streams TTS audio in 10-15 word pieces
-    4. Sends word timestamps for real-time text highlighting
+    ⭐ FEATURES:
+    1. Uses user's voice as reference for TTS cloning (real-time mode)
+    2. Uses pre-recorded reference voice for TTS (inference mode)
+    3. Streams transcription progressively  
+    4. Chunks LLM response and streams TTS audio in 10-15 word pieces
+    5. Sends word timestamps for real-time text highlighting
+    6. Supports interruption detection via VAD
     
     Args:
         audio: Audio file containing user's speech
+        voice_mode: "real-time" (use current audio) or "inference" (use reference voice)
+        reference_voice_id: ID of reference voice to use (required for inference mode)
+        allow_interruption: Whether to enable VAD-based interruption detection
         
     Returns:
         SSE stream with events:
@@ -711,10 +725,17 @@ async def vad_chat_voice_stream(audio: UploadFile = File(...)):
         - transcription_complete: User's transcribed speech
         - llm_complete: AI's text response
         - tts_chunk: Audio chunk with text and word timestamps
+        - interruption_detected: When user interrupts (if allow_interruption=true)
         - complete: Done
     """
     temp_audio_path = None
     cleaned_audio_path = None
+    
+    # Parse parameters
+    voice_mode = voice_mode.lower()
+    allow_interruption_bool = allow_interruption.lower() == "true"
+    
+    logger.info(f"🎙️ Voice mode: {voice_mode}, Allow interruption: {allow_interruption_bool}")
     
     async def generate_stream():
         nonlocal temp_audio_path, cleaned_audio_path
@@ -780,10 +801,36 @@ async def vad_chat_voice_stream(audio: UploadFile = File(...)):
             reply_text = await chat_with_llm(user_text)
             logger.info(f"🤖 LLM replied: {reply_text[:100]}...")
             
+            # DEBUG: Check if LLM is echoing user input
+            if reply_text.strip().lower() == user_text.strip().lower():
+                logger.error(f"⚠️ BUG DETECTED: LLM echoed user input!")
+                logger.error(f"User: {user_text}")
+                logger.error(f"LLM:  {reply_text}")
+            
             yield f"event: llm_complete\ndata: {json.dumps({'text': reply_text})}\n\n"
             
-            # Step 5: Chunk text for streaming TTS
-            yield f"event: tts_start\ndata: {json.dumps({'message': 'Generating speech in your voice...'})}\n\n"
+            # Step 5: Determine reference voice for TTS
+            reference_voice_path = None
+            
+            if voice_mode == "inference" and reference_voice_id:
+                # Use pre-recorded reference voice
+                for ext in ['.wav', '.mp3']:
+                    ref_path = os.path.join(REFERENCE_VOICE_DIR, f"{reference_voice_id}{ext}")
+                    if os.path.exists(ref_path):
+                        reference_voice_path = ref_path
+                        logger.info(f"🎙️ Using inference voice: {reference_voice_path}")
+                        break
+                
+                if not reference_voice_path:
+                    yield f"event: error\ndata: {json.dumps({'error': 'Reference voice not found'})}\n\n"
+                    return
+            else:
+                # Use real-time voice (current audio)
+                reference_voice_path = audio_to_use
+                logger.info(f"🎤 Using real-time voice: {reference_voice_path}")
+            
+            # Step 6: Chunk text for streaming TTS
+            yield f"event: tts_start\ndata: {json.dumps({'message': 'Generating speech...', 'voice_mode': voice_mode})}\n\n"
             
             # Chunk text into 10-15 word pieces for smooth streaming
             chunks = chunk_text_by_words(reply_text, min_words=10, max_words=15)
@@ -792,17 +839,16 @@ async def vad_chat_voice_stream(audio: UploadFile = File(...)):
             # Get word timestamps for highlighting
             word_timestamps = get_word_timestamps(reply_text, chunks)
             
-            # Step 6: Generate and stream TTS for each chunk
-            # 🌟 KEY FEATURE: Use user's audio as reference for voice cloning!
+            # Step 7: Generate and stream TTS for each chunk
             for chunk_idx, (chunk_text, start_char, end_char) in enumerate(chunks):
                 logger.info(f"🎵 Chunk {chunk_idx + 1}/{len(chunks)}: '{chunk_text[:40]}...'")
                 
                 try:
-                    # Generate audio for this chunk using USER'S VOICE as reference
+                    # Generate audio for this chunk using selected reference voice
                     chunk_audio_path = await text_to_speech(
                         chunk_text, 
                         MODE, 
-                        reference_audio_path=audio_to_use  # ⭐ CLONE USER'S VOICE!
+                        reference_audio_path=reference_voice_path
                     )
                     
                     # Read audio file and encode as base64
@@ -825,7 +871,8 @@ async def vad_chat_voice_stream(audio: UploadFile = File(...)):
                         'start_char': start_char,
                         'end_char': end_char,
                         'words': chunk_words,
-                        'audio_format': 'wav'
+                        'audio_format': 'wav',
+                        'allow_interruption': allow_interruption_bool  # Send interruption flag
                     }
                     
                     yield f"event: tts_chunk\ndata: {json.dumps(chunk_data)}\n\n"
@@ -1091,6 +1138,183 @@ async def chat_voice_stream(audio: UploadFile = File(...)):
         
     except Exception as e:
         logger.error(f"Streaming chat setup error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# REFERENCE VOICE MANAGEMENT ENDPOINTS
+# ============================================
+
+@app.post("/upload-reference-voice")
+async def upload_reference_voice(audio: UploadFile = File(...)):
+    """
+    Upload a reference voice for inference mode.
+    Cleans the audio and stores it for later use.
+    
+    Args:
+        audio: Audio file containing reference voice
+        
+    Returns:
+        JSON with reference_voice_id and file path
+    """
+    try:
+        # Detect file extension
+        file_ext = ".wav"
+        if audio.content_type:
+            logger.info(f"📥 Received reference voice: {audio.content_type}")
+            if "wav" in audio.content_type:
+                file_ext = ".wav"
+            elif "mp3" in audio.content_type:
+                file_ext = ".mp3"
+            elif "webm" in audio.content_type:
+                file_ext = ".webm"
+        
+        # Save uploaded audio temporarily
+        temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
+        content = await audio.read()
+        
+        if len(content) == 0:
+            raise HTTPException(status_code=400, detail="Empty audio file")
+        
+        temp_audio.write(content)
+        temp_audio.flush()
+        temp_audio.close()
+        
+        # Check for speech
+        has_voice, speech_duration = has_speech(temp_audio.name, threshold=0.5)
+        logger.info(f"Reference voice VAD: has_speech={has_voice}, duration={speech_duration:.2f}s")
+        
+        if not has_voice or speech_duration < 0.5:
+            os.unlink(temp_audio.name)
+            raise HTTPException(
+                status_code=400,
+                detail="No clear speech detected. Please record at least 1 second of clear speech."
+            )
+        
+        # Clean the audio
+        cleaned_audio_path = clean_audio(temp_audio.name)
+        audio_to_save = cleaned_audio_path if cleaned_audio_path else temp_audio.name
+        
+        # Generate unique ID and save to reference directory
+        import time
+        reference_id = f"ref_{int(time.time())}"
+        reference_path = os.path.join(REFERENCE_VOICE_DIR, f"{reference_id}.wav")
+        
+        # Copy to reference directory
+        import shutil
+        shutil.copy2(audio_to_save, reference_path)
+        
+        logger.info(f"✅ Reference voice saved: {reference_path}")
+        
+        # Cleanup temp files
+        try:
+            os.unlink(temp_audio.name)
+            if cleaned_audio_path and cleaned_audio_path != temp_audio.name:
+                os.unlink(cleaned_audio_path)
+        except:
+            pass
+        
+        return JSONResponse({
+            "success": True,
+            "reference_voice_id": reference_id,
+            "reference_path": reference_path,
+            "duration": round(speech_duration, 2),
+            "message": "Reference voice uploaded successfully"
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Reference voice upload error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/list-reference-voices")
+async def list_reference_voices():
+    """
+    List all available reference voices.
+    
+    Returns:
+        JSON array of reference voice files
+    """
+    try:
+        voices = []
+        for filename in os.listdir(REFERENCE_VOICE_DIR):
+            if filename.endswith(('.wav', '.mp3')):
+                filepath = os.path.join(REFERENCE_VOICE_DIR, filename)
+                voices.append({
+                    "id": filename.replace('.wav', '').replace('.mp3', ''),
+                    "filename": filename,
+                    "path": filepath,
+                    "size": os.path.getsize(filepath)
+                })
+        
+        return JSONResponse({"voices": voices})
+        
+    except Exception as e:
+        logger.error(f"List reference voices error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/delete-reference-voice/{reference_id}")
+async def delete_reference_voice(reference_id: str):
+    """
+    Delete a reference voice by ID.
+    
+    Args:
+        reference_id: ID of the reference voice to delete
+        
+    Returns:
+        JSON with success status
+    """
+    try:
+        # Find and delete the file
+        for ext in ['.wav', '.mp3']:
+            filepath = os.path.join(REFERENCE_VOICE_DIR, f"{reference_id}{ext}")
+            if os.path.exists(filepath):
+                os.unlink(filepath)
+                logger.info(f"🗑️ Deleted reference voice: {filepath}")
+                return JSONResponse({
+                    "success": True,
+                    "message": f"Reference voice {reference_id} deleted"
+                })
+        
+        raise HTTPException(status_code=404, detail="Reference voice not found")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Delete reference voice error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/audio/reference_voices/{filename}")
+async def serve_reference_voice(filename: str):
+    """
+    Serve a reference voice audio file.
+    
+    Args:
+        filename: Name of the audio file
+        
+    Returns:
+        Audio file response
+    """
+    try:
+        filepath = os.path.join(REFERENCE_VOICE_DIR, filename)
+        
+        if not os.path.exists(filepath):
+            raise HTTPException(status_code=404, detail="Audio file not found")
+        
+        return FileResponse(
+            filepath,
+            media_type="audio/wav",
+            filename=filename
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Serve reference voice error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
