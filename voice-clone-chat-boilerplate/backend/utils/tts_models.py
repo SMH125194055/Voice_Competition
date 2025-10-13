@@ -83,7 +83,7 @@ class ChatterBoxTTS(TTSModelBase):
             raise
     
     def generate(self, text: str, reference_audio_path: Optional[str] = None) -> tuple:
-        """Generate speech using ChatterBox."""
+        """Generate speech using ChatterBox with speed optimizations."""
         if self.model is None:
             raise RuntimeError("ChatterBox model not initialized. Call load_model first.")
         
@@ -92,12 +92,22 @@ class ChatterBoxTTS(TTSModelBase):
         
         logger.info(f"Generating speech with ChatterBox for text: {text[:100]}...")
         
+        # Speed optimization parameters
+        speed_params = {
+            "temperature": float(os.getenv("CHATTERBOX_TEMPERATURE", "0.7")),  # Lower = faster, more deterministic
+            "cfg_weight": float(os.getenv("CHATTERBOX_CFG_WEIGHT", "0.3")),   # Lower = faster
+            "repetition_penalty": float(os.getenv("CHATTERBOX_REPETITION_PENALTY", "1.15")),
+            "min_p": float(os.getenv("CHATTERBOX_MIN_P", "0.1")),  # Higher = faster, fewer options
+            "top_p": float(os.getenv("CHATTERBOX_TOP_P", "0.9")),  # Lower = faster
+            "exaggeration": float(os.getenv("CHATTERBOX_EXAGGERATION", "0.3"))  # Lower = less processing
+        }
+        
         if ref_audio and os.path.exists(ref_audio):
             logger.info(f"Using reference voice: {ref_audio}")
-            wav = self.model.generate(text, audio_prompt_path=ref_audio)
+            wav = self.model.generate(text, audio_prompt_path=ref_audio, **speed_params)
         else:
             logger.info("Using default voice (no reference provided)")
-            wav = self.model.generate(text)
+            wav = self.model.generate(text, **speed_params)
         
         return wav, self.model.sr
     
@@ -199,7 +209,7 @@ class VoxCPMTTS(TTSModelBase):
             prompt_wav_path=prompt_wav_path,
             prompt_text=prompt_text,  # Now properly paired with prompt_wav_path
             cfg_value=self.cfg_value,
-            inference_timesteps=self.inference_timesteps,
+            inference_timesteps=100,
             normalize=self.normalize,
             denoise=self.denoise,
             retry_badcase=self.retry_badcase,

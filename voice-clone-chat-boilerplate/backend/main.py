@@ -10,7 +10,7 @@ import tempfile
 import base64
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form, BackgroundTasks
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, BackgroundTasks, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -22,6 +22,7 @@ from utils import (
     initialize_tts,
     transcribe_audio,
     chat_with_llm,
+    chat_with_llm_streaming,
     text_to_speech,
     get_current_model_info,
     list_available_models,
@@ -107,7 +108,23 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to initialize TTS: {e}")
     
-    logger.info("Application startup complete")
+    # Pre-warm LLM library (avoid first-call delay)
+    try:
+        logger.info("🔥 Pre-warming LLM library...")
+        from qutils.llm.asynchronous import invoke
+        # Make a quick test call to load the library
+        test_response = await invoke(
+            model="groq/llama-3.1-8b-instant",
+            temperature=0.7,
+            max_tokens=10,
+            messages=[{"role": "user", "content": "hi"}],
+            verbose=False
+        )
+        logger.info("✅ LLM library pre-warmed and ready!")
+    except Exception as e:
+        logger.warning(f"⚠️ LLM pre-warming failed (non-critical): {e}")
+    
+    logger.info("🚀 Application startup complete - All services ready!")
     
     yield
     
@@ -697,6 +714,7 @@ async def vad_chat_voice(audio: UploadFile = File(...)):
 # Endpoint 7: Streaming VAD Chat with Voice Cloning and Chunked TTS (SSE)
 @app.post("/vad-chat-voice-stream")
 async def vad_chat_voice_stream(
+    request: Request,  # Add Request to detect client disconnection
     audio: UploadFile = File(...),
     voice_mode: str = Form("real-time"),  # "real-time" or "inference"
     reference_voice_id: str = Form(None),  # Optional reference voice ID for inference mode
@@ -736,6 +754,23 @@ async def vad_chat_voice_stream(
     allow_interruption_bool = allow_interruption.lower() == "true"
     
     logger.info(f"🎙️ Voice mode: {voice_mode}, Allow interruption: {allow_interruption_bool}")
+    
+    # Cancellation flag - shared between request and generator
+    cancelled = {"value": False}
+    
+    # Function to check if client is still connected
+    async def is_client_disconnected():
+        """Check if the client has disconnected"""
+        try:
+            if await request.is_disconnected():
+                if not cancelled["value"]:
+                    logger.warning("🛑 Client disconnected - detected by request.is_disconnected()")
+                    cancelled["value"] = True
+                return True
+            return False
+        except Exception as e:
+            logger.warning(f"⚠️ Error checking client connection: {e}")
+            return False
     
     async def generate_stream():
         nonlocal temp_audio_path, cleaned_audio_path
@@ -795,21 +830,7 @@ async def vad_chat_voice_stream(
             
             yield f"event: transcription_complete\ndata: {json.dumps({'text': user_text})}\n\n"
             
-            # Step 4: LLM Response
-            yield f"event: llm_start\ndata: {json.dumps({'message': 'Thinking...'})}\n\n"
-            
-            reply_text = await chat_with_llm(user_text)
-            logger.info(f"🤖 LLM replied: {reply_text[:100]}...")
-            
-            # DEBUG: Check if LLM is echoing user input
-            if reply_text.strip().lower() == user_text.strip().lower():
-                logger.error(f"⚠️ BUG DETECTED: LLM echoed user input!")
-                logger.error(f"User: {user_text}")
-                logger.error(f"LLM:  {reply_text}")
-            
-            yield f"event: llm_complete\ndata: {json.dumps({'text': reply_text})}\n\n"
-            
-            # Step 5: Determine reference voice for TTS
+            # Step 4: Determine reference voice for TTS (BEFORE LLM to save time)
             reference_voice_path = None
             
             if voice_mode == "inference" and reference_voice_id:
@@ -829,70 +850,135 @@ async def vad_chat_voice_stream(
                 reference_voice_path = audio_to_use
                 logger.info(f"🎤 Using real-time voice: {reference_voice_path}")
             
-            # Step 6: Chunk text for streaming TTS
-            yield f"event: tts_start\ndata: {json.dumps({'message': 'Generating speech...', 'voice_mode': voice_mode})}\n\n"
+            # Step 5: STREAMING LLM + PARALLEL AUDIO GENERATION
+            yield f"event: llm_start\ndata: {json.dumps({'message': 'Thinking...'})}\n\n"
             
-            # Chunk text into 10-15 word pieces for smooth streaming
-            chunks = chunk_text_by_words(reply_text, min_words=10, max_words=15)
-            logger.info(f"📦 Split into {len(chunks)} audio chunks")
+            logger.info(f"🚀 Starting STREAMING LLM + parallel audio generation...")
             
-            # Get word timestamps for highlighting
-            word_timestamps = get_word_timestamps(reply_text, chunks)
+            full_reply_text = []  # Collect full response for llm_complete event
+            chunk_idx = 0
             
-            # Step 7: Generate and stream TTS for each chunk
-            for chunk_idx, (chunk_text, start_char, end_char) in enumerate(chunks):
-                logger.info(f"🎵 Chunk {chunk_idx + 1}/{len(chunks)}: '{chunk_text[:40]}...'")
-                
-                try:
-                    # Generate audio for this chunk using selected reference voice
-                    chunk_audio_path = await text_to_speech(
-                        chunk_text, 
-                        MODE, 
-                        reference_audio_path=reference_voice_path
-                    )
+            try:
+                # Stream LLM response and generate audio in parallel
+                async for text_chunk in chat_with_llm_streaming(user_text, chunk_size=6):
+                    # Check if client disconnected (actively check)
+                    if await is_client_disconnected():
+                        logger.warning(f"🛑 Client disconnected - stopping at chunk {chunk_idx + 1}")
+                        return
                     
-                    # Read audio file and encode as base64
-                    with open(chunk_audio_path, 'rb') as f:
-                        audio_data = f.read()
-                        audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+                    # Check if client cancelled
+                    if cancelled["value"]:
+                        logger.warning(f"🛑 Request cancelled - stopping at chunk {chunk_idx + 1}")
+                        return
                     
-                    # Get words in this chunk for highlighting
-                    chunk_words = [
-                        w for w in word_timestamps 
-                        if w['chunk_index'] == chunk_idx
-                    ]
+                    # Collect full response
+                    full_reply_text.append(text_chunk)
                     
-                    # Send chunk with audio and word info for highlighting
-                    chunk_data = {
-                        'chunk_index': chunk_idx,
-                        'total_chunks': len(chunks),
-                        'text': chunk_text,
-                        'audio': audio_base64,
-                        'start_char': start_char,
-                        'end_char': end_char,
-                        'words': chunk_words,
-                        'audio_format': 'wav',
-                        'allow_interruption': allow_interruption_bool  # Send interruption flag
-                    }
+                    logger.info(f"⚡ LLM chunk {chunk_idx + 1}: '{text_chunk[:50]}...'")
                     
-                    yield f"event: tts_chunk\ndata: {json.dumps(chunk_data)}\n\n"
-                    
-                    # Cleanup chunk audio
                     try:
-                        os.unlink(chunk_audio_path)
-                    except:
-                        pass
-                    
-                    # Small delay for smoother streaming
-                    await asyncio.sleep(0.05)
-                    
-                except Exception as e:
-                    logger.error(f"❌ Error generating chunk {chunk_idx}: {e}")
-                    yield f"event: tts_error\ndata: {json.dumps({'chunk_index': chunk_idx, 'error': str(e)})}\n\n"
+                        # Check client disconnection before TTS
+                        if await is_client_disconnected():
+                            logger.warning(f"🛑 Client disconnected before TTS for chunk {chunk_idx + 1}")
+                            return
+                        
+                        # Check cancellation before TTS generation
+                        if cancelled["value"]:
+                            logger.warning(f"🛑 Cancelled before TTS for chunk {chunk_idx + 1}")
+                            return
+                        
+                        # IMMEDIATELY generate audio for this chunk (parallel to LLM)
+                        chunk_audio_path = await text_to_speech(
+                            text_chunk,
+                            MODE,
+                            reference_audio_path=reference_voice_path
+                        )
+                        
+                        # Check client disconnection after TTS
+                        if await is_client_disconnected():
+                            logger.warning(f"🛑 Client disconnected after TTS for chunk {chunk_idx + 1}")
+                            try:
+                                os.unlink(chunk_audio_path)
+                            except:
+                                pass
+                            return
+                        
+                        # Check cancellation after TTS generation
+                        if cancelled["value"]:
+                            logger.warning(f"🛑 Cancelled after TTS for chunk {chunk_idx + 1}")
+                            try:
+                                os.unlink(chunk_audio_path)
+                            except:
+                                pass
+                            return
+                        
+                        # Read and encode audio
+                        with open(chunk_audio_path, 'rb') as f:
+                            audio_data = f.read()
+                            audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+                        
+                        # Send chunk immediately
+                        chunk_data = {
+                            'chunk_index': chunk_idx,
+                            'total_chunks': -1,  # Unknown until complete
+                            'text': text_chunk,
+                            'audio': audio_base64,
+                            'words': text_chunk.split(),  # Simple word list
+                            'audio_format': 'wav',
+                            'allow_interruption': allow_interruption_bool  # Send interruption flag
+                        }
+                        
+                        # Try to send chunk - if connection closed, this will raise exception
+                        try:
+                            yield f"event: tts_chunk\ndata: {json.dumps(chunk_data)}\n\n"
+                            logger.info(f"✅ Chunk {chunk_idx + 1} sent ({len(audio_data)} bytes)")
+                        except (GeneratorExit, StopAsyncIteration, ConnectionResetError) as e:
+                            logger.warning(f"🛑 Client disconnected during chunk {chunk_idx + 1}: {type(e).__name__}")
+                            cancelled["value"] = True  # Set cancellation flag
+                            # Cleanup and exit gracefully
+                            try:
+                                os.unlink(chunk_audio_path)
+                            except:
+                                pass
+                            return  # Stop generator immediately
+                        
+                        # Cleanup chunk audio
+                        try:
+                            os.unlink(chunk_audio_path)
+                        except:
+                            pass
+                        
+                        chunk_idx += 1
+                        
+                    except GeneratorExit:
+                        # Client disconnected - stop immediately
+                        logger.warning(f"🛑 Client disconnected - stopping generation")
+                        cancelled["value"] = True  # Set cancellation flag
+                        return
+                    except Exception as e:
+                        logger.error(f"❌ Error generating chunk {chunk_idx}: {e}")
+                        try:
+                            yield f"event: tts_error\ndata: {json.dumps({'chunk_index': chunk_idx, 'error': str(e)})}\n\n"
+                        except:
+                            logger.warning(f"🛑 Cannot send error - client disconnected")
+                            return
+                        chunk_idx += 1
+            
+            except GeneratorExit:
+                # Client disconnected during LLM streaming
+                logger.warning(f"🛑 Client disconnected - LLM streaming interrupted")
+                cancelled["value"] = True  # Set cancellation flag
+                return
+            
+            # Send complete LLM response
+            reply_text = ' '.join(full_reply_text)
+            logger.info(f"✅ LLM streaming complete: {len(reply_text)} chars, {chunk_idx} chunks")
+            
+            yield f"event: llm_complete\ndata: {json.dumps({'text': reply_text})}\n\n"
             
             # All done!
-            yield f"event: complete\ndata: {json.dumps({'message': 'Conversation complete', 'chunks_sent': len(chunks)})}\n\n"
-            logger.info("✅ Streaming conversation complete")
+            yield f"event: complete\ndata: {json.dumps({'message': 'Conversation complete', 'chunks_sent': chunk_idx})}\n\n"
+            logger.info(f"🎉 Streaming conversation complete - {chunk_idx} chunks sent")
             
         except Exception as e:
             logger.error(f"❌ Streaming error: {e}", exc_info=True)
