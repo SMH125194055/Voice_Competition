@@ -51,6 +51,19 @@ from utils.text_chunking import chunk_text_by_words, get_word_timestamps
 import utils.stt as stt_module
 import asyncio
 
+# Avatar generation imports
+from utils.avatar_generator import initialize_avatar_generator, get_avatar_generator, generate_avatar
+from utils.avatar_reference import (
+    validate_image,
+    save_reference_picture,
+    list_reference_pictures,
+    get_reference_picture_path,
+    delete_reference_picture,
+    get_reference_picture_dir
+)
+from avatar_config import get_avatar_config, AVATAR_ENABLED, AVATAR_OUTPUT_DIR
+import time
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -124,6 +137,25 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"⚠️ LLM pre-warming failed (non-critical): {e}")
     
+    # Initialize Avatar Generator (if enabled)
+    if AVATAR_ENABLED:
+        try:
+            logger.info("🎬 Initializing avatar generator...")
+            avatar_config = get_avatar_config()
+            success = initialize_avatar_generator(
+                device=avatar_config["device"],
+                size=avatar_config["size"],
+                enhancer=avatar_config["enhancer"]
+            )
+            if success:
+                logger.info(f"✅ Avatar generator initialized (device={avatar_config['device']}, size={avatar_config['size']})")
+            else:
+                logger.warning("⚠️ Avatar generator initialization failed - avatar features disabled")
+        except Exception as e:
+            logger.warning(f"⚠️ Avatar generator initialization failed: {e}")
+    else:
+        logger.info("ℹ️ Avatar generation disabled (AVATAR_ENABLED=false)")
+    
     logger.info("🚀 Application startup complete - All services ready!")
     
     yield
@@ -173,6 +205,7 @@ async def root():
     model_info = get_current_model_info()
     vad_processor = get_vad_processor()
     pool_info = get_pool_info()
+    avatar_config = get_avatar_config()
     return {
         "status": "running",
         "mode": MODE,
@@ -186,6 +219,12 @@ async def root():
             "workers": pool_info["workers"] if TRANSCRIPTION_MODE == "parallel" else 1,
             "target_workers": pool_info["target_workers"]
         },
+        "avatar": {
+            "enabled": AVATAR_ENABLED,
+            "model": avatar_config["model"] if AVATAR_ENABLED else None,
+            "device": avatar_config["device"] if AVATAR_ENABLED else None,
+            "initialized": get_avatar_generator() is not None
+        },
         "endpoints": [
             "/transcribe", 
             "/transcribe-stream",
@@ -195,7 +234,10 @@ async def root():
             "/chat-voice-stream",
             "/vad-transcribe",
             "/detect-speech",
-            "/vad-chat-voice"
+            "/vad-chat-voice",
+            "/vad-chat-avatar-stream",
+            "/upload-reference-picture",
+            "/list-reference-pictures"
         ]
     }
 
@@ -1402,6 +1444,458 @@ async def serve_reference_voice(filename: str):
     except Exception as e:
         logger.error(f"Serve reference voice error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# AVATAR GENERATION ENDPOINTS
+# ============================================
+
+@app.post("/upload-reference-picture")
+async def upload_reference_picture(image: UploadFile = File(...)):
+    """
+    Upload a reference picture for avatar generation.
+    
+    Args:
+        image: Image file (JPEG, PNG)
+        
+    Returns:
+        JSON with reference_picture_id and file info
+    """
+    temp_image = None
+    
+    try:
+        # Detect file extension
+        file_ext = ".jpg"
+        if image.content_type:
+            logger.info(f"📥 Received reference picture: {image.content_type}")
+            if "png" in image.content_type:
+                file_ext = ".png"
+            elif "jpeg" in image.content_type or "jpg" in image.content_type:
+                file_ext = ".jpg"
+        
+        # Save uploaded image temporarily
+        temp_image = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
+        content = await image.read()
+        
+        if len(content) == 0:
+            raise HTTPException(status_code=400, detail="Empty image file")
+        
+        temp_image.write(content)
+        temp_image.flush()
+        temp_image.close()
+        
+        # Validate image
+        if not validate_image(temp_image.name):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid image. Please upload a clear portrait photo (JPEG/PNG, min 256x256)."
+            )
+        
+        # Generate unique ID and save
+        reference_id = f"ref_{int(time.time() * 1000)}"
+        saved_path = save_reference_picture(temp_image.name, reference_id, optimize=True)
+        
+        if not saved_path:
+            raise HTTPException(status_code=500, detail="Failed to save reference picture")
+        
+        logger.info(f"✅ Reference picture saved: {saved_path}")
+        
+        # Cleanup temp file
+        try:
+            os.unlink(temp_image.name)
+        except:
+            pass
+        
+        return JSONResponse({
+            "success": True,
+            "reference_picture_id": reference_id,
+            "reference_path": saved_path,
+            "message": "Reference picture uploaded successfully"
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Reference picture upload error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if temp_image and os.path.exists(temp_image.name):
+            try:
+                os.unlink(temp_image.name)
+            except:
+                pass
+
+
+@app.get("/list-reference-pictures")
+async def list_reference_pictures_endpoint():
+    """
+    List all available reference pictures.
+    
+    Returns:
+        JSON array of reference pictures
+    """
+    try:
+        pictures = list_reference_pictures()
+        return JSONResponse({"pictures": pictures})
+    except Exception as e:
+        logger.error(f"List reference pictures error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/delete-reference-picture/{reference_id}")
+async def delete_reference_picture_endpoint(reference_id: str):
+    """
+    Delete a reference picture by ID.
+    
+    Args:
+        reference_id: ID of the reference picture to delete
+        
+    Returns:
+        JSON with success status
+    """
+    try:
+        success = delete_reference_picture(reference_id)
+        
+        if success:
+            return JSONResponse({
+                "success": True,
+                "message": f"Reference picture {reference_id} deleted"
+            })
+        else:
+            raise HTTPException(status_code=404, detail="Reference picture not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Delete reference picture error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/avatar/reference_pictures/{filename}")
+async def serve_reference_picture(filename: str):
+    """
+    Serve a reference picture file.
+    
+    Args:
+        filename: Name of the image file
+        
+    Returns:
+        Image file response
+    """
+    try:
+        filepath = os.path.join(get_reference_picture_dir(), filename)
+        
+        if not os.path.exists(filepath):
+            raise HTTPException(status_code=404, detail="Image file not found")
+        
+        return FileResponse(
+            filepath,
+            media_type="image/jpeg",
+            filename=filename
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Serve reference picture error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/vad-chat-avatar-stream")
+async def vad_chat_avatar_stream(
+    request: Request,
+    audio: UploadFile = File(...),
+    voice_mode: str = Form("real-time"),
+    reference_voice_id: str = Form(None),
+    reference_picture_id: str = Form(None),
+    enable_avatar: str = Form("true"),
+    allow_interruption: str = Form("true")
+):
+    """
+    🚀 STREAMING conversation endpoint with AVATAR generation using SSE.
+    
+    ⭐ FEATURES:
+    1. Voice cloning from user's voice or reference
+    2. Avatar video generation from reference picture
+    3. Parallel processing: audio + video generation
+    4. Streams response in chunks for near real-time experience
+    
+    Args:
+        audio: Audio file containing user's speech
+        voice_mode: "real-time" or "inference"
+        reference_voice_id: ID of reference voice (for inference mode)
+        reference_picture_id: ID of reference picture for avatar
+        enable_avatar: "true" or "false"
+        allow_interruption: "true" or "false"
+        
+    Returns:
+        SSE stream with voice + avatar video
+    """
+    temp_audio_path = None
+    cleaned_audio_path = None
+    
+    # Parse parameters
+    voice_mode = voice_mode.lower()
+    enable_avatar_bool = enable_avatar.lower() == "true" and AVATAR_ENABLED
+    allow_interruption_bool = allow_interruption.lower() == "true"
+    
+    logger.info(f"🎙️ Voice mode: {voice_mode}, Avatar: {enable_avatar_bool}")
+    
+    # Cancellation flag
+    cancelled = {"value": False}
+    
+    async def is_client_disconnected():
+        """Check if client disconnected"""
+        try:
+            if await request.is_disconnected():
+                if not cancelled["value"]:
+                    logger.warning("🛑 Client disconnected")
+                    cancelled["value"] = True
+                return True
+            return False
+        except:
+            return False
+    
+    async def generate_stream():
+        nonlocal temp_audio_path, cleaned_audio_path
+        
+        try:
+            # Detect file extension
+            file_ext = ".webm"
+            if audio.content_type:
+                logger.info(f"📥 Avatar Stream: Received audio type: {audio.content_type}")
+                if "wav" in audio.content_type:
+                    file_ext = ".wav"
+                elif "mp3" in audio.content_type:
+                    file_ext = ".mp3"
+                elif "webm" in audio.content_type:
+                    file_ext = ".webm"
+            
+            # Save uploaded audio
+            temp_audio_file = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
+            content = await audio.read()
+            logger.info(f"📊 Received {len(content)} bytes")
+            
+            if len(content) == 0:
+                yield f"event: error\ndata: {json.dumps({'error': 'Empty audio file'})}\n\n"
+                return
+            
+            temp_audio_file.write(content)
+            temp_audio_file.flush()
+            temp_audio_file.close()
+            temp_audio_path = temp_audio_file.name
+            
+            # Step 1: VAD Check
+            yield f"event: vad_start\ndata: {json.dumps({'message': 'Checking for speech...'})}\n\n"
+            
+            has_voice, speech_duration = has_speech(temp_audio_path, threshold=0.5)
+            logger.info(f"🎤 VAD: speech={has_voice}, duration={speech_duration:.2f}s")
+            
+            if not has_voice or speech_duration < 0.3:
+                yield f"event: error\ndata: {json.dumps({'error': 'No speech detected in audio'})}\n\n"
+                return
+            
+            yield f"event: vad_complete\ndata: {json.dumps({'has_speech': True, 'duration': round(speech_duration, 2)})}\n\n"
+            
+            # Step 2: Clean Audio
+            yield f"event: audio_processing\ndata: {json.dumps({'message': 'Cleaning audio...'})}\n\n"
+            cleaned_audio_path = clean_audio(temp_audio_path)
+            audio_to_use = cleaned_audio_path if cleaned_audio_path else temp_audio_path
+            
+            # Step 3: Transcription
+            yield f"event: transcription_start\ndata: {json.dumps({'message': 'Transcribing your speech...'})}\n\n"
+            
+            user_text = await transcribe_audio(audio_to_use, MODE)
+            logger.info(f"💬 User said: {user_text}")
+            
+            if not user_text or len(user_text.strip()) < 2:
+                yield f"event: error\ndata: {json.dumps({'error': 'Could not transcribe speech'})}\n\n"
+                return
+            
+            yield f"event: transcription_complete\ndata: {json.dumps({'text': user_text})}\n\n"
+            
+            # Step 4: Determine reference voice for TTS
+            reference_voice_path = None
+            
+            if voice_mode == "inference" and reference_voice_id:
+                for ext in ['.wav', '.mp3']:
+                    ref_path = os.path.join(REFERENCE_VOICE_DIR, f"{reference_voice_id}{ext}")
+                    if os.path.exists(ref_path):
+                        reference_voice_path = ref_path
+                        logger.info(f"🎙️ Using inference voice: {reference_voice_path}")
+                        break
+                
+                if not reference_voice_path:
+                    yield f"event: error\ndata: {json.dumps({'error': 'Reference voice not found'})}\n\n"
+                    return
+            else:
+                reference_voice_path = audio_to_use
+                logger.info(f"🎤 Using real-time voice: {reference_voice_path}")
+            
+            # Step 4.5: Determine reference picture for avatar (if enabled)
+            reference_picture_path = None
+            if enable_avatar_bool:
+                if reference_picture_id:
+                    reference_picture_path = get_reference_picture_path(reference_picture_id)
+                    if not reference_picture_path:
+                        logger.warning(f"Reference picture {reference_picture_id} not found, using default")
+                        reference_picture_path = get_avatar_config()["default_image"]
+                else:
+                    reference_picture_path = get_avatar_config()["default_image"]
+                
+                logger.info(f"🖼️ Using reference picture: {reference_picture_path}")
+            
+            # Step 5: STREAMING LLM + PARALLEL AUDIO + AVATAR GENERATION
+            yield f"event: llm_start\ndata: {json.dumps({'message': 'Thinking...'})}\n\n"
+            
+            logger.info(f"🚀 Starting STREAMING LLM + media generation...")
+            
+            full_reply_text = []
+            chunk_idx = 0
+            
+            try:
+                async for text_chunk in chat_with_llm_streaming(user_text, chunk_size=6):
+                    if await is_client_disconnected():
+                        logger.warning(f"🛑 Client disconnected - stopping at chunk {chunk_idx + 1}")
+                        return
+                    
+                    full_reply_text.append(text_chunk)
+                    logger.info(f"⚡ LLM chunk {chunk_idx + 1}: '{text_chunk[:50]}...'")
+                    
+                    try:
+                        if await is_client_disconnected():
+                            return
+                        
+                        # Generate audio for this chunk
+                        chunk_audio_path = await text_to_speech(
+                            text_chunk,
+                            MODE,
+                            reference_audio_path=reference_voice_path
+                        )
+                        
+                        if await is_client_disconnected():
+                            try:
+                                os.unlink(chunk_audio_path)
+                            except:
+                                pass
+                            return
+                        
+                        # 🎬 NEW: Generate avatar video chunk (if enabled)
+                        avatar_video_base64 = None
+                        if enable_avatar_bool and reference_picture_path:
+                            try:
+                                logger.info(f"🎬 Generating avatar video for chunk {chunk_idx + 1}...")
+                                avatar_video_path = await generate_avatar(
+                                    audio_path=chunk_audio_path,
+                                    image_path=reference_picture_path,
+                                    output_dir=AVATAR_OUTPUT_DIR,
+                                    fast_mode=True
+                                )
+                                
+                                if avatar_video_path and os.path.exists(avatar_video_path):
+                                    with open(avatar_video_path, 'rb') as f:
+                                        video_data = f.read()
+                                        avatar_video_base64 = base64.b64encode(video_data).decode('utf-8')
+                                    
+                                    logger.info(f"✅ Avatar chunk {chunk_idx + 1}: {len(video_data)} bytes")
+                                    
+                                    # Cleanup video file
+                                    try:
+                                        os.unlink(avatar_video_path)
+                                    except:
+                                        pass
+                            except Exception as e:
+                                logger.error(f"❌ Avatar chunk {chunk_idx + 1} error: {e}")
+                                avatar_video_base64 = None
+                        
+                        # Read and encode audio (fallback if no avatar)
+                        with open(chunk_audio_path, 'rb') as f:
+                            audio_data = f.read()
+                            audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+                        
+                        # Send chunk with avatar video (if available)
+                        chunk_data = {
+                            'chunk_index': chunk_idx,
+                            'text': text_chunk,
+                            'audio': audio_base64,
+                            'avatar_video': avatar_video_base64,  # 🎬 NEW: Avatar video chunk
+                            'has_avatar': avatar_video_base64 is not None,
+                            'words': text_chunk.split(),
+                            'audio_format': 'wav',
+                            'allow_interruption': allow_interruption_bool
+                        }
+                        
+                        try:
+                            yield f"event: tts_chunk\ndata: {json.dumps(chunk_data)}\n\n"
+                            logger.info(f"✅ Chunk {chunk_idx + 1} sent (audio: {len(audio_data)} bytes, avatar: {len(avatar_video_base64) if avatar_video_base64 else 0} bytes)")
+                        except (GeneratorExit, StopAsyncIteration, ConnectionResetError):
+                            logger.warning(f"🛑 Client disconnected during chunk {chunk_idx + 1}")
+                            cancelled["value"] = True
+                            try:
+                                os.unlink(chunk_audio_path)
+                            except:
+                                pass
+                            return
+                        
+                        # Cleanup chunk audio
+                        try:
+                            os.unlink(chunk_audio_path)
+                        except:
+                            pass
+                        
+                        chunk_idx += 1
+                        
+                    except GeneratorExit:
+                        logger.warning(f"🛑 Client disconnected")
+                        cancelled["value"] = True
+                        return
+                    except Exception as e:
+                        logger.error(f"❌ Error generating chunk {chunk_idx}: {e}")
+                        try:
+                            yield f"event: tts_error\ndata: {json.dumps({'chunk_index': chunk_idx, 'error': str(e)})}\n\n"
+                        except:
+                            return
+                        chunk_idx += 1
+            
+            except GeneratorExit:
+                logger.warning(f"🛑 Client disconnected during LLM streaming")
+                cancelled["value"] = True
+                return
+            
+            # Send complete LLM response
+            reply_text = ' '.join(full_reply_text)
+            logger.info(f"✅ LLM streaming complete: {len(reply_text)} chars, {chunk_idx} chunks")
+            
+            yield f"event: llm_complete\ndata: {json.dumps({'text': reply_text})}\n\n"
+            
+            # All done!
+            yield f"event: complete\ndata: {json.dumps({'message': 'Conversation complete', 'chunks_sent': chunk_idx, 'avatar_enabled': enable_avatar_bool})}\n\n"
+            logger.info(f"🎉 Streaming conversation complete - {chunk_idx} chunks sent, avatar: {enable_avatar_bool}")
+            
+        except Exception as e:
+            logger.error(f"❌ Streaming error: {e}", exc_info=True)
+            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+        
+        finally:
+            # Cleanup temp files
+            if temp_audio_path and os.path.exists(temp_audio_path):
+                try:
+                    os.unlink(temp_audio_path)
+                except:
+                    pass
+            if cleaned_audio_path and os.path.exists(cleaned_audio_path):
+                try:
+                    os.unlink(cleaned_audio_path)
+                except:
+                    pass
+    
+    return StreamingResponse(
+        generate_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive"
+        }
+    )
 
 
 if __name__ == "__main__":

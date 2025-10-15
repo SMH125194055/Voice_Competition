@@ -33,6 +33,15 @@ const VADVoiceAgent = () => {
   const [showReferenceModal, setShowReferenceModal] = useState(false);
   const [isSettingsExpanded, setIsSettingsExpanded] = useState(true); // Settings panel expanded by default
   
+  // NEW: Avatar settings
+  const [enableAvatar, setEnableAvatar] = useState(true); // Enable/disable avatar generation
+  const [referencePictureId, setReferencePictureId] = useState(null);
+  const [referencePictures, setReferencePictures] = useState([]);
+  const [avatarVideo, setAvatarVideo] = useState(null); // Store generated avatar video
+  const [isGeneratingAvatar, setIsGeneratingAvatar] = useState(false);
+  const [avatarVideoUrl, setAvatarVideoUrl] = useState(null); // Current video URL
+  const avatarVideoRef = useRef(null); // Reference to avatar video element
+  
   // Audio player states
   const [isPlayingReference, setIsPlayingReference] = useState(false);
   const [referenceAudioProgress, setReferenceAudioProgress] = useState(0);
@@ -199,51 +208,134 @@ const VADVoiceAgent = () => {
     }
   };
   
-  // Play audio chunk with word highlighting
-  const playAudioChunk = async (base64Audio, chunkWords, startWordIndex) => {
+  // Play audio chunk with word highlighting (and avatar video if available)
+  const playAudioChunk = async (base64Audio, chunkWords, startWordIndex, avatarVideoBase64 = null, hasAvatar = false) => {
     return new Promise((resolve) => {
       try {
-        const audio = new Audio(`data:audio/wav;base64,${base64Audio}`);
-        currentAudioRef.current = audio;
-        
-        audio.addEventListener('loadedmetadata', () => {
-          const duration = audio.duration * 1000;
-          const wordDelay = chunkWords.length > 0 ? duration / chunkWords.length : 0;
+        // 🎬 NEW: If avatar video is available, play it instead of audio
+        if (hasAvatar && avatarVideoBase64) {
+          console.log('🎬 Playing avatar video chunk with embedded audio...');
           
-          // Highlight each word as it's spoken
-          chunkWords.forEach((_, idx) => {
-            setTimeout(() => {
-              const newIndex = startWordIndex + idx;
-              setCurrentWordIndex(newIndex);
+          try {
+            // Convert base64 to blob
+            const byteCharacters = atob(avatarVideoBase64);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+              byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: 'video/mp4' });
+            const videoUrl = URL.createObjectURL(blob);
+            
+            // Update avatar video display
+            setAvatarVideoUrl(videoUrl);
+            
+            // Create video element to play
+            const video = document.createElement('video');
+            video.src = videoUrl;
+            video.muted = false;  // ✅ Enable audio from video
+            currentAudioRef.current = video;  // Track as current playing media
+            
+            video.addEventListener('loadedmetadata', () => {
+              const duration = video.duration * 1000;
+              const wordDelay = chunkWords.length > 0 ? duration / chunkWords.length : 0;
               
-              // Auto-scroll to highlighted word in AI text box
+              // Highlight words
+              chunkWords.forEach((_, idx) => {
+                setTimeout(() => {
+                  const newIndex = startWordIndex + idx;
+                  setCurrentWordIndex(newIndex);
+                  
+                  setTimeout(() => {
+                    const highlightedWord = document.querySelector('.text-scroll-content .word.highlighted');
+                    if (highlightedWord) {
+                      highlightedWord.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
+                  }, 50);
+                }, wordDelay * idx);
+              });
+              
               setTimeout(() => {
-                const highlightedWord = document.querySelector('.text-scroll-content .word.highlighted');
-                if (highlightedWord) {
-                  highlightedWord.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                }
-              }, 50);
-            }, wordDelay * idx);
+                setCurrentWordIndex(-1);
+              }, duration);
+            });
+            
+            video.addEventListener('ended', () => {
+              currentAudioRef.current = null;
+              URL.revokeObjectURL(videoUrl);  // Clean up blob URL
+              resolve();
+            });
+            
+            video.addEventListener('error', (e) => {
+              console.error('❌ Avatar video error:', e);
+              currentAudioRef.current = null;
+              URL.revokeObjectURL(videoUrl);
+              resolve();
+            });
+            
+            // Play the video (audio will come from video)
+            video.play().then(() => {
+              console.log('🎬 Avatar video chunk playing with audio');
+            }).catch(err => {
+              console.error('❌ Failed to play avatar video:', err);
+              currentAudioRef.current = null;
+              URL.revokeObjectURL(videoUrl);
+              resolve();
+            });
+            
+          } catch (error) {
+            console.error('❌ Error creating avatar video:', error);
+            // Fall back to audio-only
+            playAudioOnly();
+          }
+        } else {
+          // No avatar - play audio only
+          playAudioOnly();
+        }
+        
+        // Helper function for audio-only playback
+        function playAudioOnly() {
+          const audio = new Audio(`data:audio/wav;base64,${base64Audio}`);
+          currentAudioRef.current = audio;
+          
+          audio.addEventListener('loadedmetadata', () => {
+            const duration = audio.duration * 1000;
+            const wordDelay = chunkWords.length > 0 ? duration / chunkWords.length : 0;
+            
+            chunkWords.forEach((_, idx) => {
+              setTimeout(() => {
+                const newIndex = startWordIndex + idx;
+                setCurrentWordIndex(newIndex);
+                
+                setTimeout(() => {
+                  const highlightedWord = document.querySelector('.text-scroll-content .word.highlighted');
+                  if (highlightedWord) {
+                    highlightedWord.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                  }
+                }, 50);
+              }, wordDelay * idx);
+            });
+            
+            setTimeout(() => {
+              setCurrentWordIndex(-1);
+            }, duration);
           });
           
-          // Clear highlight at end
-          setTimeout(() => {
-            setCurrentWordIndex(-1);
-          }, duration);
-        });
+          audio.addEventListener('ended', () => {
+            currentAudioRef.current = null;
+            resolve();
+          });
+          
+          audio.addEventListener('error', (e) => {
+            console.error('❌ Audio error:', e);
+            currentAudioRef.current = null;
+            resolve();
+          });
+          
+          audio.play();
+          console.log('🔊 Audio playing (no avatar)');
+        }
         
-        audio.addEventListener('ended', () => {
-          currentAudioRef.current = null;
-          resolve();
-        });
-        
-        audio.addEventListener('error', (e) => {
-          console.error('❌ Audio error:', e);
-          currentAudioRef.current = null;
-          resolve();
-        });
-        
-        audio.play();
       } catch (error) {
         console.error('❌ Failed to play:', error);
         currentAudioRef.current = null;
@@ -270,8 +362,9 @@ const VADVoiceAgent = () => {
       const chunkWords = chunk.text.split(' ');
       setStreamingAIWords(prev => [...prev, ...chunkWords]);
       
-      // Play audio with highlighting
-      await playAudioChunk(chunk.audio, chunkWords, wordIndex);
+      // Play audio (or avatar video) with highlighting
+      // 🎬 Pass avatar video data if available
+      await playAudioChunk(chunk.audio, chunkWords, wordIndex, chunk.avatarVideo, chunk.hasAvatar);
       wordIndex += chunkWords.length;
       
       // Update progress
@@ -355,11 +448,18 @@ const VADVoiceAgent = () => {
       currentAudioRef.current = null;
     }
     
+    // Stop avatar video
+    if (avatarVideoRef.current) {
+      avatarVideoRef.current.pause();
+      avatarVideoRef.current.currentTime = 0;
+    }
+    
     // Clear queue immediately
     audioQueueRef.current = [];
     isPlayingRef.current = false;
     setIsAISpeaking(false);
     setIsProcessing(false);
+    setIsGeneratingAvatar(false);
     setCurrentWordIndex(-1);
     setChunkProgress({ current: 0, total: 0 });
     setCurrentPhase('');
@@ -400,9 +500,10 @@ const VADVoiceAgent = () => {
   // REFERENCE VOICE MANAGEMENT FUNCTIONS
   // ============================================
   
-  // Load reference voices on component mount
+  // Load reference voices and pictures on component mount
   useEffect(() => {
     loadReferenceVoices();
+    loadReferencePictures();
   }, []);
   
   const loadReferenceVoices = async () => {
@@ -624,6 +725,79 @@ const VADVoiceAgent = () => {
     }
   }, [referenceVoiceId, referenceVoices]);
   
+  // ============================================
+  // REFERENCE PICTURE MANAGEMENT FUNCTIONS
+  // ============================================
+  
+  const loadReferencePictures = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/list-reference-pictures`);
+      const data = await response.json();
+      setReferencePictures(data.pictures || []);
+      
+      // Auto-select first picture if enabled and no picture selected
+      if (enableAvatar && !referencePictureId && data.pictures.length > 0) {
+        setReferencePictureId(data.pictures[0].id);
+      }
+    } catch (error) {
+      console.error('Failed to load reference pictures:', error);
+    }
+  };
+  
+  const handlePictureUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+      
+      const response = await fetch(`${API_BASE_URL}/upload-reference-picture`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        console.log('✅ Picture uploaded:', data.reference_picture_id);
+        await loadReferencePictures();
+        setReferencePictureId(data.reference_picture_id);
+        alert('Reference picture uploaded successfully!');
+      } else {
+        throw new Error(data.error || 'Upload failed');
+      }
+    } catch (error) {
+      console.error('Failed to upload reference picture:', error);
+      alert('Failed to upload reference picture. Please try again.');
+    }
+  };
+  
+  const deleteReferencePicture = async (pictureId) => {
+    if (!window.confirm('Delete this reference picture?')) return;
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/delete-reference-picture/${pictureId}`, {
+        method: 'DELETE'
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        console.log('🗑️ Deleted reference picture:', pictureId);
+        await loadReferencePictures();
+        
+        // Clear selection if deleted picture was selected
+        if (referencePictureId === pictureId) {
+          setReferencePictureId(null);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to delete reference picture:', error);
+      alert('Failed to delete reference picture.');
+    }
+  };
+  
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -704,11 +878,20 @@ const VADVoiceAgent = () => {
         formData.append('reference_voice_id', referenceVoiceId);
       }
       
-      console.log(`🎙️ Voice mode: ${voiceMode}, Interruption: ${allowInterruption}`);
+      // Add avatar settings
+      formData.append('enable_avatar', enableAvatar.toString());
+      if (enableAvatar && referencePictureId) {
+        formData.append('reference_picture_id', referencePictureId);
+      }
+      
+      console.log(`🎙️ Voice mode: ${voiceMode}, Interruption: ${allowInterruption}, Avatar: ${enableAvatar}`);
       
       abortControllerRef.current = new AbortController();
       
-      const response = await fetch(`${API_BASE_URL}/vad-chat-voice-stream`, {
+      // Use avatar stream endpoint if avatar is enabled
+      const endpoint = enableAvatar ? '/vad-chat-avatar-stream' : '/vad-chat-voice-stream';
+      
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: 'POST',
         body: formData,
         signal: abortControllerRef.current.signal
@@ -784,7 +967,7 @@ const VADVoiceAgent = () => {
               });
             }
             
-            // TTS chunks
+            // TTS chunks (with optional avatar video)
             if (data.audio) {
               // ⚠️ Check if stream was interrupted - skip adding chunks if true
               if (isInterruptedRef.current) {
@@ -792,14 +975,24 @@ const VADVoiceAgent = () => {
                 return; // Stop processing this stream
               }
               
-                  setCurrentPhase('tts');
+              setCurrentPhase('tts');
               setChunkProgress({ current: data.chunk_index, total: data.total_chunks });
-              setStatus(`🔊 Speaking (${data.chunk_index + 1}/${data.total_chunks})...`);
               
+              // 🎬 Update status based on avatar availability
+              if (data.has_avatar && data.avatar_video) {
+                setStatus(`🎬 Avatar speaking (${data.chunk_index + 1})...`);
+                console.log(`🎬 Chunk ${data.chunk_index + 1} has avatar video (${data.avatar_video.length} bytes base64)`);
+              } else {
+                setStatus(`🔊 Speaking (${data.chunk_index + 1})...`);
+              }
+              
+              // Add to queue with avatar video if available
               audioQueueRef.current.push({
                 audio: data.audio,
                 text: data.text,
-                words: data.words
+                words: data.words,
+                avatarVideo: data.avatar_video || null,  // 🎬 NEW: Avatar video chunk
+                hasAvatar: data.has_avatar || false
               });
               
               if (!isPlayingRef.current) {
@@ -807,10 +1000,17 @@ const VADVoiceAgent = () => {
               }
             }
             
+            // Avatar error handling (chunks are handled in tts_chunk processing)
+            if (currentEvent === 'avatar_error') {
+              console.error('❌ Avatar generation error:', data.error);
+              setIsGeneratingAvatar(false);
+            }
+            
             // Complete
             if (data.message === 'Conversation complete') {
               console.log('🎉 Complete!');
               setCurrentPhase('complete');
+              setIsGeneratingAvatar(false);
             }
             
             // Errors
@@ -818,6 +1018,7 @@ const VADVoiceAgent = () => {
               console.error('❌ Server error:', data.error);
               setError(data.error);
               setStatus('Error occurred');
+              setIsGeneratingAvatar(false);
             }
           }
         }
@@ -1060,6 +1261,104 @@ const VADVoiceAgent = () => {
                   : '✗ AI will continue speaking even if you talk'}
             </div>
             </div>
+            
+            {/* Avatar Generation Toggle */}
+            <div className="setting-group">
+              <label className="setting-label">Avatar Generation:</label>
+              <div className="toggle-switch">
+                <input
+                  type="checkbox"
+                  id="enable-avatar"
+                  checked={enableAvatar}
+                  onChange={(e) => setEnableAvatar(e.target.checked)}
+                  disabled={isListening || isProcessing || isAISpeaking}
+                />
+                <label htmlFor="enable-avatar" className="switch-label">
+                  <span className="switch-slider"></span>
+                </label>
+                <span className="toggle-text">
+                  {enableAvatar ? 'Enabled 🎬' : 'Disabled'}
+                </span>
+              </div>
+              <div className="setting-description">
+                {enableAvatar 
+                  ? '✓ AI will generate avatar video with response' 
+                  : '✗ Voice-only mode (faster)'}
+              </div>
+            </div>
+            
+            {/* Reference Picture Management (shown only if avatar enabled) */}
+            {enableAvatar && (
+              <div className="setting-group">
+                <label className="setting-label">Reference Picture:</label>
+                
+                {referencePictures.length === 0 && (
+                  <div className="recording-prompt">
+                    <p>📸 <strong>Upload your reference picture:</strong></p>
+                    <p>Use a clear portrait photo (JPEG/PNG, min 256x256px)</p>
+                  </div>
+                )}
+                
+                <div className="reference-controls">
+                  <select
+                    className="reference-voice-select"
+                    value={referencePictureId || ''}
+                    onChange={(e) => setReferencePictureId(e.target.value)}
+                    disabled={isListening || isProcessing || isAISpeaking}
+                  >
+                    <option value="">Select a reference picture...</option>
+                    {referencePictures.map((picture) => (
+                      <option key={picture.id} value={picture.id}>
+                        {picture.id} ({picture.width}x{picture.height})
+                      </option>
+                    ))}
+                  </select>
+                  
+                  {/* Picture preview */}
+                  {referencePictureId && (
+                    <div className="picture-preview">
+                      <img 
+                        src={`${API_BASE_URL}/avatar/reference_pictures/${referencePictures.find(p => p.id === referencePictureId)?.filename}`}
+                        alt="Reference"
+                        style={{width: '100px', height: '100px', objectFit: 'cover', borderRadius: '8px'}}
+                      />
+                    </div>
+                  )}
+                  
+                  <div className="button-group">
+                    {/* Upload picture button */}
+                    <label className="btn-upload">
+                      📸 Upload Picture
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/jpg,image/png"
+                        onChange={handlePictureUpload}
+                        disabled={isListening || isProcessing || isAISpeaking}
+                        style={{ display: 'none' }}
+                      />
+                    </label>
+                    
+                    {/* Delete picture button */}
+                    {referencePictureId && (
+                      <button
+                        className="btn-delete-ref"
+                        onClick={() => deleteReferencePicture(referencePictureId)}
+                        disabled={isListening || isProcessing || isAISpeaking}
+                        title="Delete reference picture"
+                      >
+                        🗑️
+                      </button>
+                    )}
+                  </div>
+                </div>
+                
+                {!referencePictureId && referencePictures.length === 0 && (
+                  <div className="setting-description warning">
+                    ⚠️ No reference pictures available. Please upload one.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1143,8 +1442,38 @@ const VADVoiceAgent = () => {
         {/* AI Circle (Right) */}
         <div className={`voice-circle ai-circle ${isAISpeaking ? 'active' : ''}`}>
           <div className="circle-content">
-            <div className="circle-avatar">🤖</div>
-            <div className="circle-label">AI Assistant</div>
+            {/* Show avatar video if available, otherwise show emoji */}
+            {enableAvatar && avatarVideoUrl ? (
+              <video 
+                ref={avatarVideoRef}
+                src={avatarVideoUrl}
+                loop
+                muted={true}
+                playsInline
+                autoPlay
+                className="avatar-video"
+                style={{
+                  width: '200px',
+                  height: '200px',
+                  borderRadius: '50%',
+                  objectFit: 'cover',
+                  position: 'absolute',
+                  top: '0',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  zIndex: 10
+                }}
+                onLoadedData={() => console.log('🎬 Avatar video loaded and ready')}
+                onError={(e) => console.error('❌ Avatar video error:', e)}
+              />
+            ) : (
+              <div className="circle-avatar">
+                {isGeneratingAvatar ? '🎬' : '🤖'}
+              </div>
+            )}
+            <div className="circle-label" style={{position: 'relative', zIndex: 20}}>
+              {isGeneratingAvatar ? 'Generating Avatar...' : (avatarVideoUrl ? '🎬 Avatar' : 'AI Assistant')}
+            </div>
             {isAISpeaking && (
               <>
                 <button className="stop-circle-btn" onClick={stopAISpeaking} title="Stop AI speaking">
@@ -1174,6 +1503,37 @@ const VADVoiceAgent = () => {
           )}
         </div>
       </div>
+      
+      {/* Avatar Video Display - Fullscreen option */}
+      {enableAvatar && avatarVideo && (
+        <div className="avatar-display-section">
+          <div className="avatar-video-container">
+            <video 
+              src={avatarVideo}
+              controls
+              autoPlay
+              loop
+              className="avatar-video-large"
+              style={{
+                width: '100%',
+                maxWidth: '500px',
+                borderRadius: '12px',
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)'
+              }}
+            />
+            <div className="avatar-info">
+              <span>🎬 Avatar Video Ready</span>
+              <button 
+                onClick={() => setAvatarVideo(null)}
+                className="btn-close-avatar"
+                style={{marginLeft: '10px', padding: '5px 10px'}}
+              >
+                ✕ Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Error Banner */}
       {error && (
