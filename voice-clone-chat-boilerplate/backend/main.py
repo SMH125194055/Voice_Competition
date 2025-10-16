@@ -902,7 +902,7 @@ async def vad_chat_voice_stream(
             
             try:
                 # Stream LLM response and generate audio in parallel
-                async for text_chunk in chat_with_llm_streaming(user_text, chunk_size=6):
+                async for text_chunk in chat_with_llm_streaming(user_text, chunk_size=15):
                     # Check if client disconnected (actively check)
                     if await is_client_disconnected():
                         logger.warning(f"🛑 Client disconnected - stopping at chunk {chunk_idx + 1}")
@@ -1637,6 +1637,8 @@ async def vad_chat_avatar_stream(
     enable_avatar_bool = enable_avatar.lower() == "true" and AVATAR_ENABLED
     allow_interruption_bool = allow_interruption.lower() == "true"
     
+    logger.info(f"🎬 Avatar settings: enable_avatar={enable_avatar}, AVATAR_ENABLED={AVATAR_ENABLED}, enable_avatar_bool={enable_avatar_bool}")
+    
     logger.info(f"🎙️ Voice mode: {voice_mode}, Avatar: {enable_avatar_bool}")
     
     # Cancellation flag
@@ -1750,9 +1752,10 @@ async def vad_chat_avatar_stream(
             
             full_reply_text = []
             chunk_idx = 0
+            pending_avatar_task = None  # ⚡ Track next avatar generation task
             
             try:
-                async for text_chunk in chat_with_llm_streaming(user_text, chunk_size=6):
+                async for text_chunk in chat_with_llm_streaming(user_text, chunk_size=15):
                     if await is_client_disconnected():
                         logger.warning(f"🛑 Client disconnected - stopping at chunk {chunk_idx + 1}")
                         return
@@ -1778,9 +1781,28 @@ async def vad_chat_avatar_stream(
                                 pass
                             return
                         
-                        # 🎬 NEW: Generate avatar video chunk (if enabled)
+                        # ⚡ NEW: Wait for pending avatar generation if exists
                         avatar_video_base64 = None
-                        if enable_avatar_bool and reference_picture_path:
+                        if pending_avatar_task is not None:
+                            logger.info(f"⏳ Waiting for pre-generated avatar chunk {chunk_idx + 1}...")
+                            avatar_video_path = await pending_avatar_task
+                            pending_avatar_task = None
+                            
+                            if avatar_video_path and os.path.exists(avatar_video_path):
+                                with open(avatar_video_path, 'rb') as f:
+                                    video_data = f.read()
+                                    avatar_video_base64 = base64.b64encode(video_data).decode('utf-8')
+                                
+                                logger.info(f"✅ Pre-generated avatar chunk {chunk_idx + 1}: {len(video_data)} bytes")
+                                
+                                # Cleanup video file
+                                try:
+                                    os.unlink(avatar_video_path)
+                                except:
+                                    pass
+                        
+                        # 🎬 Generate avatar video chunk (if enabled and no pending task)
+                        if enable_avatar_bool and reference_picture_path and avatar_video_base64 is None:
                             try:
                                 logger.info(f"🎬 Generating avatar video for chunk {chunk_idx + 1}...")
                                 avatar_video_path = await generate_avatar(
@@ -1802,8 +1824,12 @@ async def vad_chat_avatar_stream(
                                         os.unlink(avatar_video_path)
                                     except:
                                         pass
+                                else:
+                                    logger.warning(f"⚠️ Avatar video path is None or doesn't exist for chunk {chunk_idx + 1}")
                             except Exception as e:
                                 logger.error(f"❌ Avatar chunk {chunk_idx + 1} error: {e}")
+                                import traceback
+                                traceback.print_exc()
                                 avatar_video_base64 = None
                         
                         # Read and encode audio (fallback if no avatar)
@@ -1900,6 +1926,6 @@ async def vad_chat_avatar_stream(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(app, host="0.0.0.0", port=8001, reload=True)
 
 

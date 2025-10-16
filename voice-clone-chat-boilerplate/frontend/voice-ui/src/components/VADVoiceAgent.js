@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useMicVAD } from '@ricky0123/vad-react';
 import './VADVoiceAgent.css';
 
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'http://localhost:8001';
 
 const VADVoiceAgent = () => {
   // State management
@@ -227,61 +227,80 @@ const VADVoiceAgent = () => {
             const blob = new Blob([byteArray], { type: 'video/mp4' });
             const videoUrl = URL.createObjectURL(blob);
             
-            // Update avatar video display
+            console.log('✅ Avatar video blob created, size:', blob.size);
+            
+            // Update avatar video display URL
             setAvatarVideoUrl(videoUrl);
             
-            // Create video element to play
-            const video = document.createElement('video');
-            video.src = videoUrl;
-            video.muted = false;  // ✅ Enable audio from video
-            currentAudioRef.current = video;  // Track as current playing media
-            
-            video.addEventListener('loadedmetadata', () => {
-              const duration = video.duration * 1000;
-              const wordDelay = chunkWords.length > 0 ? duration / chunkWords.length : 0;
-              
-              // Highlight words
-              chunkWords.forEach((_, idx) => {
-                setTimeout(() => {
-                  const newIndex = startWordIndex + idx;
-                  setCurrentWordIndex(newIndex);
+            // Use the DISPLAYED video element (avatarVideoRef) to play
+            // Wait a bit for React to update the video element
+            setTimeout(() => {
+              if (avatarVideoRef.current) {
+                console.log('🎬 Using displayed video element for playback');
+                
+                const video = avatarVideoRef.current;
+                video.muted = false;  // ✅ Enable audio from video
+                video.src = videoUrl;
+                video.load();
+                
+                currentAudioRef.current = video;  // Track as current playing media
+                
+                video.addEventListener('loadedmetadata', () => {
+                  const duration = video.duration * 1000;
+                  const wordDelay = chunkWords.length > 0 ? duration / chunkWords.length : 0;
+                  
+                  console.log(`🎬 Video loaded, duration: ${video.duration}s`);
+                  
+                  // Highlight words
+                  chunkWords.forEach((_, idx) => {
+                    setTimeout(() => {
+                      const newIndex = startWordIndex + idx;
+                      setCurrentWordIndex(newIndex);
+                      
+                      setTimeout(() => {
+                        const highlightedWord = document.querySelector('.text-scroll-content .word.highlighted');
+                        if (highlightedWord) {
+                          highlightedWord.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        }
+                      }, 50);
+                    }, wordDelay * idx);
+                  });
                   
                   setTimeout(() => {
-                    const highlightedWord = document.querySelector('.text-scroll-content .word.highlighted');
-                    if (highlightedWord) {
-                      highlightedWord.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                    }
-                  }, 50);
-                }, wordDelay * idx);
-              });
-              
-              setTimeout(() => {
-                setCurrentWordIndex(-1);
-              }, duration);
-            });
-            
-            video.addEventListener('ended', () => {
-              currentAudioRef.current = null;
-              URL.revokeObjectURL(videoUrl);  // Clean up blob URL
-              resolve();
-            });
-            
-            video.addEventListener('error', (e) => {
-              console.error('❌ Avatar video error:', e);
-              currentAudioRef.current = null;
-              URL.revokeObjectURL(videoUrl);
-              resolve();
-            });
-            
-            // Play the video (audio will come from video)
-            video.play().then(() => {
-              console.log('🎬 Avatar video chunk playing with audio');
-            }).catch(err => {
-              console.error('❌ Failed to play avatar video:', err);
-              currentAudioRef.current = null;
-              URL.revokeObjectURL(videoUrl);
-              resolve();
-            });
+                    setCurrentWordIndex(-1);
+                  }, duration);
+                }, { once: true });
+                
+                video.addEventListener('ended', () => {
+                  console.log('🎬 Avatar video chunk finished');
+                  currentAudioRef.current = null;
+                  URL.revokeObjectURL(videoUrl);  // Clean up blob URL
+                  resolve();
+                }, { once: true });
+                
+                video.addEventListener('error', (e) => {
+                  console.error('❌ Avatar video error:', e);
+                  currentAudioRef.current = null;
+                  URL.revokeObjectURL(videoUrl);
+                  resolve();
+                }, { once: true });
+                
+                // Play the video (audio will come from video)
+                video.play().then(() => {
+                  console.log('🎬 Avatar video chunk playing with audio');
+                }).catch(err => {
+                  console.error('❌ Failed to play avatar video:', err);
+                  currentAudioRef.current = null;
+                  URL.revokeObjectURL(videoUrl);
+                  // Fall back to audio-only
+                  playAudioOnly();
+                });
+                
+              } else {
+                console.warn('⚠️ Avatar video ref not available, falling back to audio');
+                playAudioOnly();
+              }
+            }, 100);  // Small delay for React update
             
           } catch (error) {
             console.error('❌ Error creating avatar video:', error);
@@ -290,6 +309,7 @@ const VADVoiceAgent = () => {
           }
         } else {
           // No avatar - play audio only
+          console.log('🔊 No avatar video, playing audio only');
           playAudioOnly();
         }
         
@@ -1446,11 +1466,7 @@ const VADVoiceAgent = () => {
             {enableAvatar && avatarVideoUrl ? (
               <video 
                 ref={avatarVideoRef}
-                src={avatarVideoUrl}
-                loop
-                muted={true}
                 playsInline
-                autoPlay
                 className="avatar-video"
                 style={{
                   width: '200px',
@@ -1511,8 +1527,6 @@ const VADVoiceAgent = () => {
             <video 
               src={avatarVideo}
               controls
-              autoPlay
-              loop
               className="avatar-video-large"
               style={{
                 width: '100%',

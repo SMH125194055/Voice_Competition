@@ -5,7 +5,7 @@ import ConversationHistory from './components/ConversationHistory';
 import AudioRecorder from './components/AudioRecorder';
 import ReferenceVoiceManager from './components/ReferenceVoiceManager';
 
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'http://localhost:8001';
 
 function App() {
   // State management

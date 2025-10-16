@@ -13,7 +13,7 @@ AVATAR_ENABLED = os.getenv("AVATAR_ENABLED", "true").lower() == "true"
 AVATAR_MODEL = os.getenv("AVATAR_MODEL", "sadtalker")
 AVATAR_DEVICE = os.getenv("AVATAR_DEVICE", "cuda")
 AVATAR_SIZE = int(os.getenv("AVATAR_SIZE", "256"))
-AVATAR_ENHANCER = os.getenv("AVATAR_ENHANCER", "gfpgan")
+AVATAR_ENHANCER = os.getenv("AVATAR_ENHANCER", "None")  # Disable for speed
 AVATAR_DEFAULT_IMAGE = os.getenv("AVATAR_DEFAULT_IMAGE", "Avatar/References/Huzaifa.jpg")
 AVATAR_MODE = os.getenv("AVATAR_MODE", "fast")
 
