@@ -1595,41 +1595,69 @@ input[type="checkbox"]:disabled + .switch-label {
   box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
 }
 
+/* ========================================
+   LARGE AVATAR VIDEO DISPLAY (YouTube/Zoom Style)
+   ======================================== */
+
 .avatar-display-section {
   margin-top: 30px;
   display: flex;
   justify-content: center;
   padding: 20px;
+  width: 100%;
 }
 
 .avatar-video-container {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.8);
   backdrop-filter: blur(10px);
-  padding: 20px;
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 0;
+  border-radius: 20px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 15px;
+  width: 100%;
+  max-width: 1200px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  position: relative;
 }
 
 .avatar-video-large {
+  width: 100%;
+  height: auto;
+  min-height: 600px;
+  max-height: 720px;
   background: #000;
+  object-fit: contain;
+  display: block;
+}
+
+/* Video controls overlay */
+.avatar-video-container::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
+  pointer-events: none;
 }
 
 .avatar-info {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 15px;
   color: #ffffff;
   font-size: 16px;
   font-weight: 600;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
 }
 
 .btn-close-avatar {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 59, 48, 0.9);
   border: 1px solid rgba(255, 255, 255, 0.3);
   color: #ffffff;
   border-radius: 8px;
@@ -1637,11 +1665,81 @@ input[type="checkbox"]:disabled + .switch-label {
   font-size: 14px;
   font-weight: 600;
   transition: all 0.2s ease;
+  padding: 8px 16px;
 }
 
 .btn-close-avatar:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 69, 58, 1);
   transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(255, 59, 48, 0.4);
+}
+
+/* ========================================
+   RESPONSIVE DESIGN FOR AVATAR VIDEO
+   ======================================== */
+
+@media (max-width: 1400px) {
+  .avatar-video-container {
+    max-width: 1000px;
+  }
+  
+  .avatar-video-large {
+    min-height: 500px;
+    max-height: 600px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .avatar-video-container {
+    max-width: 800px;
+  }
+  
+  .avatar-video-large {
+    min-height: 400px;
+    max-height: 500px;
+  }
+  
+  .avatar-video {
+    width: 280px !important;
+    height: 280px !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .avatar-video-container {
+    max-width: 100%;
+    border-radius: 16px;
+  }
+  
+  .avatar-video-large {
+    min-height: 300px;
+    max-height: 400px;
+  }
+  
+  .avatar-video {
+    width: 220px !important;
+    height: 220px !important;
+    top: -50px !important;
+  }
+  
+  .voice-circles-container {
+    flex-direction: column;
+    gap: 20px;
+  }
+}
+
+@media (max-width: 480px) {
+  .avatar-video-large {
+    min-height: 250px;
+    max-height: 350px;
+  }
+  
+  .avatar-info {
+    font-size: 14px;
+    padding: 8px 15px !important;
+    bottom: 10px !important;
+    left: 10px !important;
+  }
 }
 
 /* Animation for generating avatar */

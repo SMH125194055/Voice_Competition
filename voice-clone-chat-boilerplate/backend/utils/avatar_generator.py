@@ -188,9 +188,14 @@ class AvatarGenerator:
             from src.generate_facerender_batch import get_facerender_data
             from time import strftime
             import shutil
+            import time
+            import random
             
-            # Create timestamped output directory
-            save_dir = os.path.join(output_dir, strftime("%Y_%m_%d_%H.%M.%S"))
+            # Create unique timestamped output directory (with microseconds + random to avoid collisions)
+            timestamp = strftime("%Y_%m_%d_%H.%M.%S")
+            microseconds = int((time.time() % 1) * 1000000)
+            random_suffix = random.randint(1000, 9999)
+            save_dir = os.path.join(output_dir, f"{timestamp}_{microseconds}_{random_suffix}")
             os.makedirs(save_dir, exist_ok=True)
             
             # Run in executor to avoid blocking

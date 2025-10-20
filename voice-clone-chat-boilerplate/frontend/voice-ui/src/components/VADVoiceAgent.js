@@ -1469,15 +1469,17 @@ const VADVoiceAgent = () => {
                 playsInline
                 className="avatar-video"
                 style={{
-                  width: '200px',
-                  height: '200px',
-                  borderRadius: '50%',
+                  width: '320px',
+                  height: '320px',
+                  borderRadius: '16px',
                   objectFit: 'cover',
                   position: 'absolute',
-                  top: '0',
+                  top: '-70px',
                   left: '50%',
                   transform: 'translateX(-50%)',
-                  zIndex: 10
+                  zIndex: 10,
+                  boxShadow: '0 10px 40px rgba(0, 0, 0, 0.4)',
+                  border: '3px solid rgba(255, 255, 255, 0.3)'
                 }}
                 onLoadedData={() => console.log('🎬 Avatar video loaded and ready')}
                 onError={(e) => console.error('❌ Avatar video error:', e)}
@@ -1520,7 +1522,7 @@ const VADVoiceAgent = () => {
         </div>
       </div>
       
-      {/* Avatar Video Display - Fullscreen option */}
+      {/* Avatar Video Display - Large YouTube/Zoom Style */}
       {enableAvatar && avatarVideo && (
         <div className="avatar-display-section">
           <div className="avatar-video-container">
@@ -1528,15 +1530,19 @@ const VADVoiceAgent = () => {
               src={avatarVideo}
               controls
               className="avatar-video-large"
-              style={{
-                width: '100%',
-                maxWidth: '500px',
-                borderRadius: '12px',
-                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)'
-              }}
+              autoPlay
+              loop
             />
-            <div className="avatar-info">
-              <span>🎬 Avatar Video Ready</span>
+            <div className="avatar-info" style={{
+              position: 'absolute',
+              bottom: '20px',
+              left: '20px',
+              background: 'rgba(0, 0, 0, 0.7)',
+              padding: '10px 20px',
+              borderRadius: '8px',
+              zIndex: 10
+            }}>
+              <span>🎬 Avatar Video - Real-time Voice Clone</span>
               <button 
                 onClick={() => setAvatarVideo(null)}
                 className="btn-close-avatar"

@@ -279,7 +279,7 @@
             formData.append('audio', audioBlob, 'audio.wav');
 
             try {
-                const response = await fetch('http://localhost:8000/vad-chat-voice-stream', {
+                const response = await fetch('http://localhost:8001/vad-chat-voice-stream', {
                     method: 'POST',
                     body: formData
                 });

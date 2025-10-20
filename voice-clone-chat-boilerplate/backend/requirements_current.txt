@@ -212,7 +212,7 @@ python-multipart==0.0.20
 pytorch-wpe==0.0.1
 pytz==2025.2
 PyYAML==6.0.3
-qutils==0.0.31
+qutils==0.5.14
 reactivex==4.0.4
 regex==2025.9.18
 requests==2.32.5
