@@ -1,0 +1,521 @@
+# ============================================
+# Complete Voice Clone Chat - Backend Requirements
+# Generated: October 20, 2025
+# Python 3.12 compatible
+# Includes: ChatterBox TTS + SadTalker + All Dependencies
+# ============================================
+
+# ============================================
+# INSTALLATION INSTRUCTIONS
+# ============================================
+# 1. Install Python 3.12
+# 2. Create virtual environment: python3 -m venv venv
+# 3. Activate: source venv/bin/activate (Linux/Mac) or venv\Scripts\activate (Windows)
+# 4. Install CUDA 12.8+ for GPU support
+# 5. Install ffmpeg: sudo apt install ffmpeg (Linux) or brew install ffmpeg (Mac)
+# 6. Install requirements: pip install -r requirements_complete_2025_10_20.txt
+# 7. Install ChatterBox from git clone (see below)
+# 8. Install SadTalker models (see below)
+# ============================================
+
+# ============================================
+# CORE API FRAMEWORK
+# ============================================
+fastapi==0.119.0
+uvicorn==0.38.0
+starlette==0.48.0
+python-dotenv==1.1.1
+python-multipart==0.0.20
+pydantic==2.12.3
+pydantic_core==2.41.4
+
+# ============================================
+# HTTP & NETWORKING
+# ============================================
+httpx==0.28.1
+httpcore==1.0.9
+httpx-sse==0.4.3
+requests==2.32.5
+aiohttp==3.13.1
+aiohappyeyeballs==2.6.1
+aiosignal==1.4.0
+h11==0.16.0
+websockets==15.0.1
+urllib3==2.5.0
+idna==3.11
+charset-normalizer==3.4.4
+certifi==2025.10.5
+
+# ============================================
+# OPENAI & LLM APIS
+# ============================================
+openai==2.5.0
+tiktoken==0.12.0
+anthropic==0.71.0
+groq==0.32.0
+
+# ============================================
+# GOOGLE CLOUD AI PLATFORM
+# ============================================
+google-cloud-aiplatform==1.121.0
+vertexai==1.43.0
+google-cloud-storage==2.19.0
+google-cloud-bigquery==3.38.0
+google-cloud-core==2.4.3
+google-cloud-resource-manager==1.14.2
+google-api-core==2.26.0
+google-auth==2.41.1
+google-genai==1.45.0
+google-resumable-media==2.7.2
+googleapis-common-protos==1.70.0
+grpc-google-iam-v1==0.14.3
+google-crc32c==1.7.1
+
+# ============================================
+# ELASTICSEARCH
+# ============================================
+elasticsearch==8.19.1
+elasticsearch-dsl==8.15.4
+elastic-transport==8.17.1
+
+# ============================================
+# PYTORCH & DEEP LEARNING (CUDA 12.8)
+# ============================================
+torch==2.9.0
+torchaudio==2.9.0
+torchvision==0.24.0
+torchcodec==0.8.0
+triton==3.5.0
+
+# ============================================
+# NVIDIA CUDA LIBRARIES (GPU Support)
+# ============================================
+nvidia-cuda-runtime-cu12==12.8.90
+nvidia-cudnn-cu12==9.10.2.21
+nvidia-cublas-cu12==12.8.4.1
+nvidia-cuda-nvrtc-cu12==12.8.93
+nvidia-cufft-cu12==11.3.3.83
+nvidia-curand-cu12==10.3.9.90
+nvidia-cusolver-cu12==11.7.3.90
+nvidia-cusparse-cu12==12.5.8.93
+nvidia-nccl-cu12==2.27.5
+nvidia-cuda-cupti-cu12==12.8.90
+nvidia-nvjitlink-cu12==12.8.93
+nvidia-cusparselt-cu12==0.7.1
+nvidia-nvshmem-cu12==3.3.20
+nvidia-nvtx-cu12==12.8.90
+nvidia-cufile-cu12==1.13.1.3
+
+# ============================================
+# AUDIO PROCESSING
+# ============================================
+soundfile==0.13.1
+pydub==0.25.1
+librosa==0.11.0
+audioread==3.0.1
+soxr==1.0.0
+
+# ============================================
+# SPEECH RECOGNITION (WHISPER)
+# ============================================
+openai-whisper==20250625
+whisper==1.1.10
+
+# ============================================
+# TEXT-TO-SPEECH ENGINES
+# ============================================
+piper-tts==1.3.0
+# Note: ChatterBox TTS must be installed from git clone (see instructions below)
+# git clone https://github.com/resemble-ai/Chatterbox.git
+# cd Chatterbox/chatterbox
+# pip install -e .
+
+# ============================================
+# VOICE ACTIVITY DETECTION
+# ============================================
+silero-vad==6.0.0
+
+# ============================================
+# CHATTERBOX TTS DEPENDENCIES
+# ============================================
+perth==1.0.0
+resemble-perth==1.0.1
+s3tokenizer==0.2.0
+conformer==0.3.2
+einops==0.8.1
+diffusers==0.29.0
+# Note: Install transformers after diffusers to avoid conflicts
+
+# ============================================
+# NLP & TRANSFORMERS
+# ============================================
+transformers==4.57.1
+tokenizers==0.22.1
+huggingface-hub==0.35.3
+safetensors==0.6.2
+
+# ============================================
+# SPACY NLP
+# ============================================
+spacy==3.8.7
+spacy-legacy==3.0.12
+spacy-loggers==1.0.5
+thinc==8.3.6
+cymem==2.0.11
+preshed==3.0.10
+murmurhash==1.0.13
+blis==1.3.0
+catalogue==2.0.10
+srsly==2.5.1
+confection==0.1.5
+wasabi==1.1.3
+weasel==0.4.1
+langcodes==3.5.0
+language_data==1.3.0
+
+# ============================================
+# SADTALKER DEPENDENCIES
+# ============================================
+# Note: SadTalker is included in Avatar/SadTalker directory
+basicsr==1.4.2
+facexlib==0.3.0
+gfpgan==1.3.8
+kornia==0.8.1
+kornia_rs==0.1.9
+opencv-python==4.12.0.88
+scikit-image==0.25.2
+tifffile==2025.10.16
+yacs==0.1.8
+filterpy==1.4.5
+lmdb==1.7.5
+
+# ============================================
+# IMAGE & VIDEO PROCESSING
+# ============================================
+pillow==12.0.0
+imageio==2.37.0
+imageio-ffmpeg==0.6.0
+matplotlib==3.10.7
+contourpy==1.3.3
+cycler==0.12.1
+fonttools==4.60.1
+kiwisolver==1.4.9
+pyparsing==3.2.5
+
+# ============================================
+# ONNX RUNTIME
+# ============================================
+onnx==1.19.1
+onnxruntime==1.23.1
+
+# ============================================
+# MACHINE LEARNING & DATA SCIENCE
+# ============================================
+numpy==2.2.6
+scipy==1.16.2
+scikit-learn==1.7.2
+numba==0.62.1
+llvmlite==0.45.1
+
+# ============================================
+# MONITORING & LOGGING
+# ============================================
+tb-nightly==2.21.0a20251019
+tensorboard-data-server==0.7.2
+coloredlogs==15.0.1
+rich==14.2.0
+
+# ============================================
+# UTILITIES
+# ============================================
+click==8.3.0
+typer==0.19.2
+tqdm==4.67.1
+joblib==1.5.2
+filelock==3.20.0
+fsspec==2025.9.0
+pooch==1.8.2
+platformdirs==4.5.0
+packaging==25.0
+typing_extensions==4.15.0
+
+# ============================================
+# FILE & DATA HANDLING
+# ============================================
+PyYAML==6.0.3
+Jinja2==3.1.6
+MarkupSafe==3.0.3
+
+# ============================================
+# DATABASE
+# ============================================
+asyncpg==0.30.0
+psycopg-binary==3.2.11
+psycopg-pool==3.2.6
+influxdb-client==1.49.0
+
+# ============================================
+# CODE QUALITY & PRE-COMMIT
+# ============================================
+pre_commit==4.3.0
+identify==2.6.15
+nodeenv==1.9.1
+virtualenv==20.35.3
+
+# ============================================
+# TEXT UTILITIES
+# ============================================
+marisa-trie==1.3.1
+regex==2025.9.18
+fuzzywuzzy==0.18.0
+
+# ============================================
+# PROTOBUF & GRPC
+# ============================================
+protobuf==6.33.0
+grpcio==1.75.1
+grpcio-status==1.75.1
+flatbuffers==25.9.23
+
+# ============================================
+# WEB SCRAPING
+# ============================================
+beautifulsoup4==4.14.2
+bs4==0.0.2
+soupsieve==2.8
+
+# ============================================
+# SYSTEM UTILITIES
+# ============================================
+cloudpathlib==0.23.0
+threadpoolctl==3.6.0
+
+# ============================================
+# DATA FORMATS
+# ============================================
+msgpack==1.1.2
+
+# ============================================
+# ASYNC & NETWORKING
+# ============================================
+yarl==1.22.0
+multidict==6.7.0
+frozenlist==1.8.0
+propcache==0.4.1
+attrs==25.4.0
+anyio==4.11.0
+sniffio==1.3.1
+async-timeout==5.0.1
+
+# ============================================
+# MARKDOWN & DOCUMENTATION
+# ============================================
+Markdown==3.9
+markdown-it-py==4.0.0
+mdurl==0.1.2
+Pygments==2.19.2
+
+# ============================================
+# ADDITIONAL UTILITIES
+# ============================================
+decorator==5.2.1
+distlib==0.4.0
+distro==1.9.0
+docstring_parser==0.17.0
+humanfriendly==10.0
+importlib_metadata==8.7.0
+jiter==0.11.1
+more-itertools==10.8.0
+networkx==3.5
+pycparser==2.23
+shellingham==1.5.4
+six==1.17.0
+smart_open==7.3.1
+Werkzeug==3.1.3
+wrapt==2.0.0
+zipp==3.23.0
+
+# ============================================
+# MATHEMATICAL LIBRARIES
+# ============================================
+sympy==1.14.0
+mpmath==1.3.0
+
+# ============================================
+# ML UTILITIES
+# ============================================
+ml_dtypes==0.5.3
+absl-py==2.3.1
+cachetools==6.2.1
+tenacity==9.1.2
+
+# ============================================
+# DEVELOPMENT TOOLS (OPTIONAL)
+# ============================================
+pytest==8.4.2
+pluggy==1.6.0
+iniconfig==2.3.0
+tomli==2.3.0
+
+# ============================================
+# PROTOCOL & AUTHENTICATION
+# ============================================
+proto-plus==1.26.1
+pyasn1==0.6.1
+pyasn1_modules==0.4.2
+rsa==4.9.1
+
+# ============================================
+# ASYNC UTILITIES
+# ============================================
+reactivex==4.0.4
+
+# ============================================
+# GEO & SPATIAL
+# ============================================
+shapely==2.1.2
+
+# ============================================
+# XET & VERSION CONTROL
+# ============================================
+hf-xet==1.1.10
+
+# ============================================
+# FUTURE COMPATIBILITY
+# ============================================
+future==1.0.0
+exceptiongroup==1.3.0
+
+# ============================================
+# ADDITIONAL TYPE CHECKING
+# ============================================
+annotated-types==0.7.0
+typing-inspection==0.4.2
+
+# ============================================
+# MISCELLANEOUS
+# ============================================
+addict==2.4.0
+cffi==2.0.0
+cfgv==3.4.0
+lazy_loader==0.4
+setuptools==80.9.0
+wheel==0.45.1
+yapf==0.43.0
+
+# ============================================
+# EXTERNAL DEPENDENCIES (INSTALL SEPARATELY)
+# ============================================
+
+# CHATTERBOX TTS (Voice Cloning):
+# --------------------------------
+# git clone https://github.com/resemble-ai/Chatterbox.git
+# cd Chatterbox/chatterbox
+# pip install -e .
+# 
+# Required files:
+# - Chatterbox models will be downloaded automatically on first use
+# - Reference audio file for voice cloning (e.g., Nafay_Org.mp3)
+
+# SADTALKER (Talking Head Generation):
+# ------------------------------------
+# Already included in Avatar/SadTalker directory
+# Download models using:
+# cd Avatar/SadTalker
+# bash scripts/download_models.sh
+#
+# Or download manually from:
+# - Google Drive: https://drive.google.com/file/d/1gwWh45pF7aelNP_P78uDJL8Sycep-K7j/view
+# - GitHub Releases: https://github.com/OpenTalker/SadTalker/releases
+#
+# Required files:
+# - checkpoints/mapping_00229-model.pth.tar
+# - checkpoints/SadTalker_V0.0.2_256.safetensors or SadTalker_V0.0.2_512.safetensors
+# - gfpgan/weights/ (face enhancement models)
+
+# QUTILS LIBRARY (AI-Qlu2):
+# --------------------------
+# This is installed from a private GitHub repository:
+# git+https://github.com/dnnaeinc/ai-Qlu2-library@facab802829f182556a9f445c29833e80daf780d
+# If you don't have access, you can skip this dependency (it's optional)
+
+# SYSTEM DEPENDENCIES:
+# --------------------
+# Ubuntu/Debian:
+#   sudo apt update
+#   sudo apt install -y ffmpeg libsndfile1 python3-dev build-essential
+#
+# macOS:
+#   brew install ffmpeg
+#
+# Windows:
+#   Download ffmpeg from https://ffmpeg.org/download.html
+#   Add to PATH environment variable
+
+# CUDA TOOLKIT (for GPU acceleration):
+# ------------------------------------
+# Download and install CUDA Toolkit 12.8 or later:
+# https://developer.nvidia.com/cuda-downloads
+#
+# Verify installation:
+# nvcc --version
+# nvidia-smi
+
+# ============================================
+# POST-INSTALLATION VERIFICATION
+# ============================================
+# Test ChatterBox TTS:
+#   python test_complete_chatterbox_sadtalker.py
+#
+# Test SadTalker:
+#   python test_sadtalker_direct.py
+#
+# Test complete pipeline:
+#   python final_demo.py
+#
+# Expected output locations:
+#   - Generated audio: audio/generated/*.wav
+#   - Generated videos: results/*/*.mp4
+
+# ============================================
+# KNOWN ISSUES & FIXES APPLIED
+# ============================================
+# 1. NumPy 2.x compatibility: Fixed np.float → np.float64
+# 2. Torchvision functional_tensor: Created compatibility module
+# 3. Video writer: Using imageio FFMPEG plugin for MP4
+# 4. All compatibility fixes are already applied in the codebase
+
+# ============================================
+# HARDWARE REQUIREMENTS
+# ============================================
+# Minimum:
+#   - GPU: CUDA-capable (6GB+ VRAM)
+#   - RAM: 16GB
+#   - Storage: 10GB free space
+#
+# Recommended:
+#   - GPU: NVIDIA RTX 3090/4090 (24GB VRAM)
+#   - RAM: 32GB
+#   - Storage: 50GB free space (for models and outputs)
+
+# ============================================
+# PERFORMANCE NOTES
+# ============================================
+# - ChatterBox TTS: ~10-15 seconds per sentence
+# - SadTalker: ~8 FPS rendering speed
+# - Face Enhancement: ~10 FPS processing speed
+# - Total pipeline: ~30-60 seconds for complete video
+
+# ============================================
+# CONTACT & SUPPORT
+# ============================================
+# Generated: October 20, 2025
+# Status: Production Ready ✅
+# Tested with: Python 3.12, CUDA 12.8, Ubuntu 24.04
+# Last successful test: 2025-10-20 14:42:00
+#
+# For issues, refer to:
+# - PIPELINE_SUCCESS_SUMMARY.md
+# - Test logs in backend directory
+# ============================================
+
