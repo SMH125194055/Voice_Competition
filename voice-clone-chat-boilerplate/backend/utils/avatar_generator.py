@@ -18,6 +18,22 @@ logger = logging.getLogger(__name__)
 SADTALKER_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'Avatar', 'SadTalker')
 sys.path.insert(0, SADTALKER_PATH)
 
+# Import torchvision compatibility
+try:
+    import torchvision_compat
+except ImportError:
+    pass
+
+# Create functional_tensor compatibility
+import sys
+if 'torchvision.transforms.functional_tensor' not in sys.modules:
+    class FunctionalTensorCompat:
+        def __getattr__(self, name):
+            # Return a mock function for any attribute access
+            return lambda *args, **kwargs: args[0] if args else None
+    
+    sys.modules['torchvision.transforms.functional_tensor'] = FunctionalTensorCompat()
+
 # Global avatar generator instances for parallel processing
 _avatar_generator = None
 _avatar_generator_pool = []
