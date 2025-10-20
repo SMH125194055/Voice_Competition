@@ -1,0 +1,57 @@
+2025-10-20 18:50:57,489 - INFO - 🚀 Avatar Optimization Test Started
+2025-10-20 18:50:57,489 - INFO - ================================================================================
+2025-10-20 18:50:58,306 - INFO - Silero VAD loaded successfully
+2025-10-20 18:50:58,306 - INFO - 
+================================================================================
+2025-10-20 18:50:58,306 - INFO - Testing: Baseline (256px - Current) (size=256px)
+2025-10-20 18:50:58,306 - INFO - ================================================================================
+2025-10-20 18:50:58,306 - ERROR - ❌ Error: AvatarGenerator.__init__() got an unexpected keyword argument 'preload'
+Traceback (most recent call last):
+  File "/home/syedhuzaifa/Voice_Competition/voice-clone-chat-boilerplate/backend/test_avatar_optimization.py", line 35, in test_avatar_generation
+    generator = AvatarGenerator(
+                ^^^^^^^^^^^^^^^^
+TypeError: AvatarGenerator.__init__() got an unexpected keyword argument 'preload'
+2025-10-20 18:51:00,309 - INFO - 
+================================================================================
+2025-10-20 18:51:00,309 - INFO - Testing: Optimized 1 (128px) (size=128px)
+2025-10-20 18:51:00,309 - INFO - ================================================================================
+2025-10-20 18:51:00,309 - ERROR - ❌ Error: AvatarGenerator.__init__() got an unexpected keyword argument 'preload'
+Traceback (most recent call last):
+  File "/home/syedhuzaifa/Voice_Competition/voice-clone-chat-boilerplate/backend/test_avatar_optimization.py", line 35, in test_avatar_generation
+    generator = AvatarGenerator(
+                ^^^^^^^^^^^^^^^^
+TypeError: AvatarGenerator.__init__() got an unexpected keyword argument 'preload'
+2025-10-20 18:51:02,311 - INFO - 
+================================================================================
+2025-10-20 18:51:02,311 - INFO - Testing: Optimized 2 (96px - SadTalker default) (size=96px)
+2025-10-20 18:51:02,311 - INFO - ================================================================================
+2025-10-20 18:51:02,311 - ERROR - ❌ Error: AvatarGenerator.__init__() got an unexpected keyword argument 'preload'
+Traceback (most recent call last):
+  File "/home/syedhuzaifa/Voice_Competition/voice-clone-chat-boilerplate/backend/test_avatar_optimization.py", line 35, in test_avatar_generation
+    generator = AvatarGenerator(
+                ^^^^^^^^^^^^^^^^
+TypeError: AvatarGenerator.__init__() got an unexpected keyword argument 'preload'
+2025-10-20 18:51:04,313 - INFO - 
+================================================================================
+2025-10-20 18:51:04,313 - INFO - Testing: Optimized 3 (64px - Fastest) (size=64px)
+2025-10-20 18:51:04,313 - INFO - ================================================================================
+2025-10-20 18:51:04,313 - ERROR - ❌ Error: AvatarGenerator.__init__() got an unexpected keyword argument 'preload'
+Traceback (most recent call last):
+  File "/home/syedhuzaifa/Voice_Competition/voice-clone-chat-boilerplate/backend/test_avatar_optimization.py", line 35, in test_avatar_generation
+    generator = AvatarGenerator(
+                ^^^^^^^^^^^^^^^^
+TypeError: AvatarGenerator.__init__() got an unexpected keyword argument 'preload'
+2025-10-20 18:51:06,316 - INFO - 
+================================================================================
+2025-10-20 18:51:06,316 - INFO - 📊 OPTIMIZATION SUMMARY
+2025-10-20 18:51:06,316 - INFO - ================================================================================
+
+2025-10-20 18:51:06,316 - INFO - Baseline (256px - Current): FAILED
+2025-10-20 18:51:06,316 - INFO - 
+2025-10-20 18:51:06,316 - INFO - Optimized 1 (128px): FAILED
+2025-10-20 18:51:06,316 - INFO - 
+2025-10-20 18:51:06,316 - INFO - Optimized 2 (96px - SadTalker default): FAILED
+2025-10-20 18:51:06,316 - INFO - 
+2025-10-20 18:51:06,316 - INFO - Optimized 3 (64px - Fastest): FAILED
+2025-10-20 18:51:06,316 - INFO - 
+2025-10-20 18:51:06,316 - INFO - ✅ Optimization test complete!
