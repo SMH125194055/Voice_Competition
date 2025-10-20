@@ -64,8 +64,9 @@ def validate_image(image_path: str) -> bool:
             return False
         
         # Check if image has face (basic check - has reasonable aspect ratio)
+        # Allow wider range for portrait/landscape images
         aspect_ratio = width / height
-        if aspect_ratio < 0.5 or aspect_ratio > 2.0:
+        if aspect_ratio < 0.3 or aspect_ratio > 3.0:
             logger.warning(f"Unusual aspect ratio: {aspect_ratio}")
             return False
         

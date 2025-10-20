@@ -78,6 +78,9 @@ class VADProcessor:
             # Read audio file (silero-vad expects 16kHz)
             wav = read_audio(audio_path, sampling_rate=16000)
             
+            # Move audio tensor to the same device as model
+            wav = wav.to(self.device)
+            
             # Get speech timestamps
             speech_timestamps = get_speech_timestamps(
                 wav,

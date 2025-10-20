@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useMicVAD } from '@ricky0123/vad-react';
 import './VADVoiceAgent.css';
 
-const API_BASE_URL = 'http://localhost:8001';
+const API_BASE_URL = 'http://localhost:8000';
 
 const VADVoiceAgent = () => {
   // State management
