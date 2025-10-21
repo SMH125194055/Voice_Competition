@@ -110,12 +110,12 @@
   height: 100%;
 }
 
-/* When conversation panel is open, stack videos vertically and take half width */
+/* When conversation panel is open, keep videos horizontal and take 80% width */
 .video-grid.with-conversation-panel {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 12px;
-  width: 50%;
+  width: 80%;
   height: 100%;
   overflow: hidden;
   flex-shrink: 0;
@@ -142,12 +142,23 @@
   min-height: 250px;
   max-height: 100%;
   transition: all 0.3s ease;
+  aspect-ratio: 16 / 9;
 }
 
 .participant-video.speaking {
-  box-shadow: 0 0 0 4px #00ff88, 0 0 20px rgba(0, 255, 136, 0.6);
+  box-shadow: 0 0 0 6px #00ff88, 0 0 30px rgba(0, 255, 136, 0.8), inset 0 0 20px rgba(0, 255, 136, 0.2);
   transform: scale(1.02);
-  border: 3px solid #00ff88;
+  border: 4px solid #00ff88;
+  animation: speaking-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes speaking-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 6px #00ff88, 0 0 30px rgba(0, 255, 136, 0.8), inset 0 0 20px rgba(0, 255, 136, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 0 8px #00ff88, 0 0 50px rgba(0, 255, 136, 1), inset 0 0 30px rgba(0, 255, 136, 0.3);
+  }
 }
 
 .video-element {
@@ -159,7 +170,7 @@
 
 .avatar-video {
   background: #1a1a1a;
-  object-fit: contain !important;
+  object-fit: cover !important;
   width: 100% !important;
   height: 100% !important;
 }
@@ -386,6 +397,43 @@
   margin-bottom: 16px;
 }
 
+/* Generate Idle Button in Placeholder */
+.generate-idle-placeholder-btn {
+  margin-top: 16px;
+  padding: 12px 24px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.generate-idle-placeholder-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.6);
+}
+
+.generate-idle-placeholder-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Idle Animation Status */
+.idle-status {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: rgba(0, 255, 136, 0.1);
+  border: 1px solid #00ff88;
+  border-radius: 6px;
+  color: #00ff88;
+  font-size: 13px;
+  text-align: center;
+}
+
 .restore-video-btn {
   padding: 12px 24px;
   background: #3c4043;
@@ -412,7 +460,7 @@
 .side-panel,
 .conversation-panel {
   position: relative;
-  width: 50%;
+  width: 20%;
   background: #1a1a1a;
   border-left: 1px solid #3c4043;
   display: flex;
@@ -564,9 +612,49 @@
 }
 
 .upload-btn {
-  width: 100%;
-  margin-top: 8px;
+  flex: 1;
   text-align: center;
+}
+
+/* Image Preview in Settings */
+.image-preview {
+  margin-top: 12px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 2px solid #3c4043;
+  max-width: 100%;
+  background: #1a1a1a;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.image-preview img {
+  width: 100%;
+  height: auto;
+  max-height: 200px;
+  object-fit: contain;
+  display: block;
+}
+
+/* Inline Audio Player */
+.inline-audio-player {
+  margin-top: 8px;
+}
+
+.inline-audio-player audio {
+  width: 100%;
+  height: 32px;
+  border-radius: 4px;
+  outline: none;
+}
+
+.inline-audio-player audio::-webkit-media-controls-panel {
+  background-color: #2d2d2d;
+}
+
+.inline-audio-player audio::-webkit-media-controls-play-button,
+.inline-audio-player audio::-webkit-media-controls-current-time-display,
+.inline-audio-player audio::-webkit-media-controls-time-remaining-display {
+  color: #fff;
 }
 
 /* Toggle Capsule */

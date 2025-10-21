@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form, BackgroundTasks, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import json
@@ -180,6 +181,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount static directories for serving avatar videos and idle animations
+idle_animations_dir = "outputs/idle_animations"
+os.makedirs(idle_animations_dir, exist_ok=True)
+app.mount("/avatars/idle_animations", StaticFiles(directory=idle_animations_dir), name="idle_animations")
 
 
 # Pydantic models
@@ -1597,6 +1603,183 @@ async def serve_reference_picture(filename: str):
         raise
     except Exception as e:
         logger.error(f"Serve reference picture error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/reference-pictures/{reference_id}/view")
+async def view_reference_picture(reference_id: str):
+    """
+    View a reference picture by ID (for frontend display).
+    
+    Args:
+        reference_id: ID of the reference picture
+        
+    Returns:
+        Image file response
+    """
+    try:
+        # Find the file with this ID
+        ref_dir = get_reference_picture_dir()
+        
+        for filename in os.listdir(ref_dir):
+            if filename.startswith(reference_id) and filename.endswith(('.jpg', '.png', '.jpeg')):
+                filepath = os.path.join(ref_dir, filename)
+                
+                # Determine media type
+                media_type = "image/jpeg"
+                if filename.endswith('.png'):
+                    media_type = "image/png"
+                
+                return FileResponse(
+                    filepath,
+                    media_type=media_type,
+                    filename=filename
+                )
+        
+        raise HTTPException(status_code=404, detail=f"Reference picture {reference_id} not found")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"View reference picture error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/reference-voices/{reference_id}/play")
+async def play_reference_voice(reference_id: str):
+    """
+    Play/stream a reference voice by ID (for frontend audio player).
+    
+    Args:
+        reference_id: ID of the reference voice
+        
+    Returns:
+        Audio file response
+    """
+    try:
+        # Find the file with this ID
+        for filename in os.listdir(REFERENCE_VOICE_DIR):
+            if filename.startswith(reference_id) and filename.endswith(('.wav', '.mp3')):
+                filepath = os.path.join(REFERENCE_VOICE_DIR, filename)
+                
+                # Determine media type
+                media_type = "audio/wav"
+                if filename.endswith('.mp3'):
+                    media_type = "audio/mpeg"
+                
+                return FileResponse(
+                    filepath,
+                    media_type=media_type,
+                    filename=filename
+                )
+        
+        raise HTTPException(status_code=404, detail=f"Reference voice {reference_id} not found")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Play reference voice error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/generate-idle-animation")
+async def generate_idle_animation(request: Request):
+    """
+    Generate an idle animation video from a reference picture.
+    Creates a 3-second looping video with subtle movements (breathing, blinking).
+    
+    Args:
+        picture_id: ID of the reference picture
+        duration: Duration in seconds (default: 3)
+        
+    Returns:
+        JSON with idle video URL
+    """
+    import numpy as np
+    import soundfile as sf
+    import time
+    
+    try:
+        # Parse request body
+        body = await request.json()
+        picture_id = body.get('picture_id')
+        duration = body.get('duration', 3)
+        
+        if not picture_id:
+            raise HTTPException(status_code=400, detail="picture_id is required")
+        
+        logger.info(f"🎬 Generating idle animation for picture: {picture_id}, duration: {duration}s")
+        
+        # Get the reference picture path
+        ref_dir = get_reference_picture_dir()
+        picture_path = None
+        
+        for filename in os.listdir(ref_dir):
+            if filename.startswith(picture_id) and filename.endswith(('.jpg', '.png', '.jpeg')):
+                picture_path = os.path.join(ref_dir, filename)
+                break
+        
+        if not picture_path:
+            raise HTTPException(status_code=404, detail=f"Reference picture {picture_id} not found")
+        
+        # Generate silent audio (required for SadTalker)
+        sample_rate = 16000
+        num_samples = int(duration * sample_rate)
+        silence = np.zeros(num_samples, dtype=np.float32)
+        
+        # Save silence audio temporarily
+        temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix='.wav')
+        sf.write(temp_audio.name, silence, sample_rate)
+        temp_audio.close()
+        
+        try:
+            # Generate idle video using SadTalker
+            avatar_gen = get_avatar_generator()
+            if not avatar_gen:
+                raise HTTPException(status_code=503, detail="Avatar generator not available")
+            
+            # Generate with subtle expressions using the correct async method
+            idle_video_path = await avatar_gen.generate_avatar_video(
+                audio_path=temp_audio.name,
+                image_path=picture_path,
+                output_dir='outputs/idle_animations',
+                still_mode=False,  # Allow subtle movements for liveness
+                preprocess='crop',
+                expression_scale=0.3  # Subtle movements for idle state
+            )
+            
+            # Clean up temp audio
+            os.unlink(temp_audio.name)
+            
+            if not idle_video_path or not os.path.exists(idle_video_path):
+                raise HTTPException(status_code=500, detail="Failed to generate idle animation")
+            
+            # Return URL
+            video_filename = os.path.basename(idle_video_path)
+            video_url = f"/avatars/idle_animations/{video_filename}"
+            
+            logger.info(f"✅ Idle animation generated: {video_url}")
+            
+            return JSONResponse({
+                "idle_video_url": video_url,
+                "duration": duration,
+                "status": "success"
+            })
+            
+        finally:
+            # Ensure temp audio is cleaned up
+            try:
+                if os.path.exists(temp_audio.name):
+                    os.unlink(temp_audio.name)
+            except:
+                pass
+                
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Idle animation generation error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 

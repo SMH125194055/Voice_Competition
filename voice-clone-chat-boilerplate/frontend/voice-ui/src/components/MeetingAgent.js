@@ -54,6 +54,7 @@ const MeetingAgent = () => {
   const [idleAvatarUrl, setIdleAvatarUrl] = useState(null);
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isMicOn, setIsMicOn] = useState(true);
+  const [isGeneratingIdle, setIsGeneratingIdle] = useState(false);
   
   // VAD sensitivity
   const vadSensitivity = 'high';
@@ -220,6 +221,52 @@ const MeetingAgent = () => {
         audioTrack.enabled = !audioTrack.enabled;
         setIsMicOn(audioTrack.enabled);
       }
+    }
+  };
+  
+  // Generate idle animation
+  const generateIdleAnimation = async () => {
+    if (!referencePictureId || !enableAvatar) {
+      setError('Please select a reference picture and enable avatar');
+      return;
+    }
+    
+    setIsGeneratingIdle(true);
+    setStatus('Generating idle animation...');
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/generate-idle-animation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          picture_id: referencePictureId,
+          duration: 3  // 3 second idle animation
+        })
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        const idleUrl = `${API_BASE_URL}${data.idle_video_url}?t=${Date.now()}`;
+        setIdleAvatarUrl(idleUrl);
+        
+        // Play idle animation immediately
+        if (avatarVideoRef.current) {
+          avatarVideoRef.current.src = idleUrl;
+          avatarVideoRef.current.loop = true;
+          avatarVideoRef.current.play().catch(e => console.log('Auto-play prevented'));
+        }
+        
+        setStatus('Idle animation ready!');
+        setTimeout(() => setStatus('Ready to start conversation'), 2000);
+      } else {
+        throw new Error('Failed to generate idle animation');
+      }
+    } catch (err) {
+      console.error('Idle generation failed:', err);
+      setError('Failed to generate idle animation');
+      setStatus('Ready');
+    } finally {
+      setIsGeneratingIdle(false);
     }
   };
   
@@ -437,11 +484,32 @@ const MeetingAgent = () => {
       wordIndex += chunkWords.length;
       
       setChunkProgress(prev => ({ ...prev, current: prev.current + 1 }));
+      
+      // Show idle animation between chunks if available
+      if (audioQueueRef.current.length > 0 && idleAvatarUrl && enableAvatar && avatarVideoRef.current) {
+        console.log('⏸️ Showing idle animation between chunks...');
+        avatarVideoRef.current.src = idleAvatarUrl;
+        avatarVideoRef.current.loop = true;
+        avatarVideoRef.current.muted = true;
+        avatarVideoRef.current.play().catch(e => console.log('Idle play failed:', e));
+        
+        // Brief pause to show idle (200ms)
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
     }
     
     isPlayingRef.current = false;
     setIsAISpeaking(false);
     setCurrentWordIndex(-1);
+    
+    // Return to idle animation after all chunks finish
+    if (idleAvatarUrl && enableAvatar && avatarVideoRef.current) {
+      console.log('🔄 Returning to idle animation after speech...');
+      avatarVideoRef.current.src = idleAvatarUrl;
+      avatarVideoRef.current.loop = true;
+      avatarVideoRef.current.muted = true;
+      avatarVideoRef.current.play().catch(e => console.log('Idle play failed:', e));
+    }
     
     if (currentUserText && currentAIText) {
       const newConversation = {
@@ -992,17 +1060,33 @@ const MeetingAgent = () => {
                   <video 
                     ref={avatarVideoRef}
                     playsInline
-                    loop={!isAISpeaking && idleAvatarUrl} 
-                    autoPlay={!isAISpeaking && idleAvatarUrl}
+                  loop={!isAISpeaking && idleAvatarUrl} 
+                  autoPlay={!isAISpeaking && idleAvatarUrl}
+                  className="video-element avatar-video"
+                />
+                ) : idleAvatarUrl ? (
+                  <video 
+                    ref={avatarVideoRef}
+                    src={idleAvatarUrl}
+                    playsInline
+                    loop
+                    autoPlay
+                    muted
                     className="video-element avatar-video"
-                    style={{ objectFit: 'contain' }}
                   />
                 ) : (
                   <div className="video-placeholder">
                     <div className="placeholder-avatar">
-                      {isAISpeaking ? '🗣️' : '🤖'}
+                      {isAISpeaking ? '🗣️' : '✨'}
                     </div>
-                    <p>{isAISpeaking ? 'AI is speaking...' : 'AI Assistant'}</p>
+                    <p>{isAISpeaking ? 'AI is speaking...' : 'Generate Idle Animation'}</p>
+                    <button
+                      className="generate-idle-placeholder-btn"
+                      onClick={generateIdleAnimation}
+                      disabled={!referencePictureId || !enableAvatar || isGeneratingIdle}
+                    >
+                      {isGeneratingIdle ? '⏳ Generating...' : '✨ Generate Now'}
+                    </button>
                   </div>
                 )}
                 <div className="video-overlay">
@@ -1058,8 +1142,9 @@ const MeetingAgent = () => {
           )}
         </div>
         
-        {/* Side Panel (Settings) */}
-        <div className={`side-panel ${showSettings ? 'visible' : 'hidden'}`}>
+        {/* Settings Panel - Only show when active */}
+        {showSettings && (
+        <div className="conversation-panel">
           <div className="panel-header">
             <h3>⚙️ Settings</h3>
             <button 
@@ -1129,7 +1214,34 @@ const MeetingAgent = () => {
                       style={{ display: 'none' }}
                     />
                   </label>
+                  
+                  <button
+                    className="setting-btn"
+                    onClick={() => {
+                      if (referenceVoiceId) {
+                        const audio = new Audio(`${API_BASE_URL}/reference-voices/${referenceVoiceId}/play`);
+                        audio.play().catch(err => console.log('Play failed:', err));
+                      }
+                    }}
+                    disabled={!referenceVoiceId || isListening}
+                    title="Play selected voice"
+                  >
+                    ▶️ Play
+                  </button>
                 </div>
+                
+                {/* Inline Audio Player for Reference Voice */}
+                {referenceVoiceId && (
+                  <div className="inline-audio-player">
+                    <audio 
+                      controls 
+                      src={`${API_BASE_URL}/reference-voices/${referenceVoiceId}/play`}
+                      style={{ width: '100%', marginTop: '8px' }}
+                    >
+                      Your browser does not support audio playback.
+                    </audio>
+                  </div>
+                )}
               </div>
             )}
             
@@ -1171,16 +1283,49 @@ const MeetingAgent = () => {
                   ))}
                 </select>
                 
-                <label className="setting-btn upload-btn">
-                  📸 Upload Picture
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handlePictureUpload}
-                    disabled={isListening}
-                    style={{ display: 'none' }}
-                  />
-                </label>
+                <div className="button-group">
+                  <label className="setting-btn upload-btn">
+                    📸 Upload Picture
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handlePictureUpload}
+                      disabled={isListening}
+                      style={{ display: 'none' }}
+                    />
+                  </label>
+                  
+                </div>
+                
+                {/* Image Preview - Always show when picture is selected */}
+                {referencePictureId && (
+                  <div className="image-preview">
+                    <img 
+                      src={`${API_BASE_URL}/reference-pictures/${referencePictureId}/view`}
+                      alt="Reference Picture"
+                      onError={(e) => {
+                        console.error('Image load error');
+                        e.target.style.display = 'none';
+                      }}
+                    />
+                  </div>
+                )}
+                
+                {/* Generate Idle Animation Button */}
+                <button
+                  className="setting-btn idle-btn"
+                  onClick={generateIdleAnimation}
+                  disabled={!referencePictureId || !enableAvatar || isListening || isGeneratingIdle}
+                  style={{ width: '100%', marginTop: '12px' }}
+                >
+                  {isGeneratingIdle ? '⏳ Generating...' : '✨ Generate Idle Animation'}
+                </button>
+                
+                {idleAvatarUrl && (
+                  <div className="idle-status">
+                    ✅ Idle animation ready
+                  </div>
+                )}
               </div>
             )}
             
@@ -1205,6 +1350,7 @@ const MeetingAgent = () => {
             </div>
           </div>
         </div>
+        )}
         
         {/* Conversation Logs Panel - Only show when active */}
         {showConversationLogs && (
