@@ -23,7 +23,14 @@ class TTSModelBase(ABC):
         self.device = self._detect_device()
         
     def _detect_device(self) -> str:
-        """Detect available device (cuda/mps/cpu)."""
+        """Detect available device (cuda/mps/cpu) from env or auto-detect."""
+        # Check for TTS_DEVICE environment variable first
+        tts_device = os.getenv("TTS_DEVICE")
+        if tts_device:
+            logger.info(f"Using TTS_DEVICE from environment: {tts_device}")
+            return tts_device
+        
+        # Auto-detect if not specified
         if torch.cuda.is_available():
             return "cuda"
         elif torch.backends.mps.is_available():

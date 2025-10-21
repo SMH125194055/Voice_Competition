@@ -358,7 +358,7 @@ def get_avatar_generator() -> Optional[AvatarGenerator]:
 
 
 def initialize_avatar_generator(
-    device: str = 'cuda',
+    device: str = None,
     size: int = 256,
     enhancer: Optional[str] = 'gfpgan',
     pool_size: int = 3
@@ -367,7 +367,7 @@ def initialize_avatar_generator(
     Initialize global avatar generator with parallel processing pool.
     
     Args:
-        device: 'cuda' or 'cpu'
+        device: 'cuda:0', 'cuda:1', 'cuda', 'cpu', etc. If None, uses AVATAR_DEVICE env var
         size: Output size (256 or 512)
         enhancer: Face enhancer or None
         pool_size: Number of parallel generator instances
@@ -375,6 +375,11 @@ def initialize_avatar_generator(
     global _avatar_generator, _avatar_generator_pool, _pool_size
     
     try:
+        # If device not specified, check AVATAR_DEVICE environment variable
+        if device is None:
+            device = os.getenv("AVATAR_DEVICE", "cuda")
+            logger.info(f"Using AVATAR_DEVICE from environment: {device}")
+        
         # Determine paths
         backend_dir = os.path.dirname(os.path.dirname(__file__))
         sadtalker_dir = os.path.join(backend_dir, 'Avatar', 'SadTalker')

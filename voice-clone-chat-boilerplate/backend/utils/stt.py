@@ -28,9 +28,18 @@ def initialize_stt(mode: str, model_name: str = "base"):
     if mode == "local":
         try:
             import whisper
-            logger.info(f"Loading Whisper model: {model_name}")
-            whisper_model = whisper.load_model(model_name)
-            logger.info("Whisper model loaded successfully")
+            import torch
+            
+            # Check for STT_DEVICE environment variable
+            stt_device = os.getenv("STT_DEVICE")
+            if stt_device:
+                logger.info(f"Loading Whisper model: {model_name} on device: {stt_device}")
+                whisper_model = whisper.load_model(model_name, device=stt_device)
+                logger.info(f"Whisper model loaded successfully on {stt_device}")
+            else:
+                logger.info(f"Loading Whisper model: {model_name} (auto-detect device)")
+                whisper_model = whisper.load_model(model_name)
+                logger.info("Whisper model loaded successfully")
         except ImportError:
             logger.error("Whisper not installed. Install with: pip install git+https://github.com/openai/whisper.git")
             raise

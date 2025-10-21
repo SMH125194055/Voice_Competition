@@ -142,13 +142,14 @@ async def lifespan(app: FastAPI):
         try:
             logger.info("🎬 Initializing avatar generator...")
             avatar_config = get_avatar_config()
+            # Pass None for device to use AVATAR_DEVICE environment variable
             success = initialize_avatar_generator(
-                device=avatar_config["device"],
+                device=None,  # Will use AVATAR_DEVICE from env
                 size=avatar_config["size"],
                 enhancer=avatar_config["enhancer"]
             )
             if success:
-                logger.info(f"✅ Avatar generator initialized (device={avatar_config['device']}, size={avatar_config['size']})")
+                logger.info(f"✅ Avatar generator initialized (device from AVATAR_DEVICE env, size={avatar_config['size']})")
             else:
                 logger.warning("⚠️ Avatar generator initialization failed - avatar features disabled")
         except Exception as e:
