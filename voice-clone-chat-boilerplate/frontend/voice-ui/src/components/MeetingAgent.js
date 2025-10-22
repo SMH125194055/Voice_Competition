@@ -55,6 +55,12 @@ const MeetingAgent = () => {
   const [isCameraOn, setIsCameraOn] = useState(true);
   const [isMicOn, setIsMicOn] = useState(true);
   const [isGeneratingIdle, setIsGeneratingIdle] = useState(false);
+  const [avatarFPS, setAvatarFPS] = useState(12);
+  const [customFPS, setCustomFPS] = useState('');
+  const [isClearingCache, setIsClearingCache] = useState(false);
+  const [avatarPreprocess, setAvatarPreprocess] = useState('crop'); // Default to 'crop' - includes shoulders with our fix
+  const [avatarImageQuality, setAvatarImageQuality] = useState(256); // 256 or 512
+  const [enableFaceEnhancement, setEnableFaceEnhancement] = useState(true); // Face enhancement toggle
   
   // VAD sensitivity
   const vadSensitivity = 'high';
@@ -224,6 +230,47 @@ const MeetingAgent = () => {
     }
   };
   
+  // Clear avatar cache
+  const clearAvatarCache = async () => {
+    setIsClearingCache(true);
+    setStatus('🧹 Clearing ALL avatar caches (memory, temp, outputs)...');
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/clear-avatar-cache`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('✅ Cache clear response:', data);
+        
+        // Clear local state
+        setIdleAvatarUrl(null);
+        setAvatarVideoUrl(null);
+        
+        setStatus(`✅ ${data.message || 'All caches cleared!'}`);
+        
+        // Show next steps
+        if (data.next_steps) {
+          console.log('📋 Next steps:', data.next_steps);
+        }
+        
+        setTimeout(() => {
+          setStatus('Ready - Re-upload pictures and generate new animations');
+        }, 4000);
+      } else {
+        throw new Error('Failed to clear cache');
+      }
+    } catch (err) {
+      console.error('Cache clear failed:', err);
+      setError('Failed to clear cache');
+      setStatus('Ready');
+    } finally {
+      setIsClearingCache(false);
+    }
+  };
+  
   // Generate idle animation
   const generateIdleAnimation = async () => {
     if (!referencePictureId || !enableAvatar) {
@@ -235,29 +282,78 @@ const MeetingAgent = () => {
     setStatus('Generating idle animation...');
     
     try {
-      const response = await fetch(`${API_BASE_URL}/generate-idle-animation`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          picture_id: referencePictureId,
-          duration: 3  // 3 second idle animation
-        })
-      });
+        const response = await fetch(`${API_BASE_URL}/generate-idle-animation`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            picture_id: referencePictureId,
+            duration: 3,  // 3 second idle animation
+            fps: avatarFPS,  // Send FPS setting to backend
+            preprocess: avatarPreprocess,  // Send preprocess mode ('crop', 'full', 'resize')
+            pic_size: avatarImageQuality,  // Send image quality (256 or 512)
+            enable_enhancement: enableFaceEnhancement  // Send face enhancement option
+          })
+        });
       
       if (response.ok) {
         const data = await response.json();
         const idleUrl = `${API_BASE_URL}${data.idle_video_url}?t=${Date.now()}`;
+        
+        console.log('✅ Idle animation generated:', idleUrl);
+        
+        // Set idle URL first
         setIdleAvatarUrl(idleUrl);
         
-        // Play idle animation immediately
+        // Wait for video element to be ready and load the video
         if (avatarVideoRef.current) {
-          avatarVideoRef.current.src = idleUrl;
-          avatarVideoRef.current.loop = true;
-          avatarVideoRef.current.play().catch(e => console.log('Auto-play prevented'));
+          console.log('🎬 Loading idle animation into video element...');
+          
+          // Create a promise to wait for video to load
+          const loadVideo = new Promise((resolve, reject) => {
+            const video = avatarVideoRef.current;
+            
+            const handleLoadedData = () => {
+              console.log('✅ Idle video loaded successfully');
+              video.removeEventListener('loadeddata', handleLoadedData);
+              video.removeEventListener('error', handleError);
+              resolve();
+            };
+            
+            const handleError = (e) => {
+              console.error('❌ Error loading idle video:', e);
+              video.removeEventListener('loadeddata', handleLoadedData);
+              video.removeEventListener('error', handleError);
+              reject(e);
+            };
+            
+            video.addEventListener('loadeddata', handleLoadedData);
+            video.addEventListener('error', handleError);
+            
+            // Set video source
+            video.src = idleUrl;
+            video.loop = true;
+            video.muted = true;
+            video.load(); // Force load
+          });
+          
+          try {
+            await loadVideo;
+            
+            // Now play the video
+            await avatarVideoRef.current.play();
+            console.log('▶️ Idle animation playing');
+            
+            setStatus('Idle animation ready!');
+            setTimeout(() => setStatus('Ready to start conversation'), 2000);
+          } catch (playErr) {
+            console.error('❌ Failed to play idle video:', playErr);
+            setStatus('Idle animation generated (click to play)');
+          }
+        } else {
+          console.warn('⚠️ Avatar video ref not available');
+          setStatus('Idle animation ready!');
+          setTimeout(() => setStatus('Ready to start conversation'), 2000);
         }
-        
-        setStatus('Idle animation ready!');
-        setTimeout(() => setStatus('Ready to start conversation'), 2000);
       } else {
         throw new Error('Failed to generate idle animation');
       }
@@ -368,6 +464,9 @@ const MeetingAgent = () => {
             setTimeout(() => {
               if (avatarVideoRef.current) {
                 const video = avatarVideoRef.current;
+                
+                // CRITICAL: Disable loop for speech chunks to prevent infinite playback
+                video.loop = false;
                 video.muted = false;
                 video.src = videoUrl;
                 video.load();
@@ -390,8 +489,10 @@ const MeetingAgent = () => {
                 }, { once: true });
                 
                 video.addEventListener('ended', () => {
+                  console.log('✅ Avatar video chunk ended, cleaning up...');
                   currentAudioRef.current = null;
                   URL.revokeObjectURL(videoUrl);
+                  setAvatarVideoUrl(null); // Clear avatar URL to prevent re-loop
                   resolve();
                 }, { once: true });
                 
@@ -399,6 +500,7 @@ const MeetingAgent = () => {
                   console.error('❌ Avatar video error:', e);
                   currentAudioRef.current = null;
                   URL.revokeObjectURL(videoUrl);
+                  setAvatarVideoUrl(null);
                   resolve();
                 }, { once: true });
                 
@@ -406,6 +508,7 @@ const MeetingAgent = () => {
                   console.error('❌ Failed to play avatar video:', err);
                   currentAudioRef.current = null;
                   URL.revokeObjectURL(videoUrl);
+                  setAvatarVideoUrl(null);
                   playAudioOnly();
                 });
                 
@@ -488,13 +591,21 @@ const MeetingAgent = () => {
       // Show idle animation between chunks if available
       if (audioQueueRef.current.length > 0 && idleAvatarUrl && enableAvatar && avatarVideoRef.current) {
         console.log('⏸️ Showing idle animation between chunks...');
-        avatarVideoRef.current.src = idleAvatarUrl;
-        avatarVideoRef.current.loop = true;
-        avatarVideoRef.current.muted = true;
-        avatarVideoRef.current.play().catch(e => console.log('Idle play failed:', e));
+        const video = avatarVideoRef.current;
         
-        // Brief pause to show idle (200ms)
-        await new Promise(resolve => setTimeout(resolve, 200));
+        // Clear any previous avatar chunk URL
+        setAvatarVideoUrl(null);
+        
+        // Reset to idle state
+        video.src = idleAvatarUrl;
+        video.loop = true;
+        video.muted = true;
+        video.load(); // Force reload
+        
+        await video.play().catch(e => console.log('Idle play failed:', e));
+        
+        // Brief pause to show idle (300ms)
+        await new Promise(resolve => setTimeout(resolve, 300));
       }
     }
     
@@ -505,10 +616,18 @@ const MeetingAgent = () => {
     // Return to idle animation after all chunks finish
     if (idleAvatarUrl && enableAvatar && avatarVideoRef.current) {
       console.log('🔄 Returning to idle animation after speech...');
-      avatarVideoRef.current.src = idleAvatarUrl;
-      avatarVideoRef.current.loop = true;
-      avatarVideoRef.current.muted = true;
-      avatarVideoRef.current.play().catch(e => console.log('Idle play failed:', e));
+      const video = avatarVideoRef.current;
+      
+      // Clear any avatar chunk URLs
+      setAvatarVideoUrl(null);
+      
+      // Reset to idle state
+      video.src = idleAvatarUrl;
+      video.loop = true;
+      video.muted = true;
+      video.load(); // Force reload
+      
+      video.play().catch(e => console.log('Idle play failed:', e));
     }
     
     if (currentUserText && currentAIText) {
@@ -766,6 +885,10 @@ const MeetingAgent = () => {
       formData.append('audio', new File([wavBlob], 'speech.wav', { type: 'audio/wav' }));
       formData.append('voice_mode', voiceMode);
       formData.append('allow_interruption', allowInterruption.toString());
+      formData.append('avatar_fps', avatarFPS.toString());  // Send FPS setting
+      formData.append('avatar_preprocess', avatarPreprocess);  // Send preprocess mode
+      formData.append('avatar_pic_size', avatarImageQuality.toString());  // Send image quality
+      formData.append('enable_enhancement', enableFaceEnhancement.toString());  // Send face enhancement option
       
       if (voiceMode === 'inference' && referenceVoiceId) {
         formData.append('reference_voice_id', referenceVoiceId);
@@ -1310,6 +1433,123 @@ const MeetingAgent = () => {
                     />
                   </div>
                 )}
+                
+                {/* Avatar Framing - Single Mode */}
+                <div className="setting-group">
+                  <label>Avatar Framing:</label>
+                  <div className="setting-info">
+                    Shows from <strong>above head to chest/belly</strong>
+                  </div>
+                  <div className="setting-description">
+                    Perfect framing with face, shoulders, and upper body included
+                  </div>
+                </div>
+                
+                {/* Face Enhancement Toggle */}
+                <div className="setting-group">
+                  <label>Face Enhancement:</label>
+                  <div className="setting-toggle">
+                    <label className="switch">
+                      <input
+                        type="checkbox"
+                        checked={enableFaceEnhancement}
+                        onChange={(e) => setEnableFaceEnhancement(e.target.checked)}
+                        disabled={isListening || isGeneratingIdle}
+                      />
+                      <span className="slider"></span>
+                    </label>
+                    <span className="toggle-label">
+                      {enableFaceEnhancement ? 'Enabled (Better Quality)' : 'Disabled (Faster)'}
+                    </span>
+                  </div>
+                  <div className="setting-description">
+                    GFPGAN face enhancement for better video quality (slower generation)
+                  </div>
+                </div>
+                
+                {/* Avatar Image Quality Control */}
+                <div className="setting-group">
+                  <label>Image Quality:</label>
+                  <select
+                    value={avatarImageQuality}
+                    onChange={(e) => setAvatarImageQuality(parseInt(e.target.value))}
+                    disabled={isListening || isGeneratingIdle}
+                    className="setting-select"
+                  >
+                    <option value={256}>256x256 (Fast)</option>
+                    <option value={512}>512x512 (High Quality)</option>
+                  </select>
+                  <div className="setting-description">
+                    Higher quality = better video, slower generation
+                  </div>
+                </div>
+                
+                {/* Avatar FPS Control */}
+                <div className="setting-group">
+                  <label>Avatar FPS:</label>
+                  <select
+                    value={customFPS ? 'custom' : avatarFPS}
+                    onChange={(e) => {
+                      if (e.target.value === 'custom') {
+                        setCustomFPS('');
+                      } else {
+                        setCustomFPS('');
+                        setAvatarFPS(parseInt(e.target.value));
+                      }
+                    }}
+                    disabled={isListening || isGeneratingIdle}
+                    className="setting-select"
+                  >
+                    <option value={5}>5 FPS (Fastest)</option>
+                    <option value={9}>9 FPS (Fast)</option>
+                    <option value={12}>12 FPS (Balanced)</option>
+                    <option value={15}>15 FPS (Smooth)</option>
+                    <option value={24}>24 FPS (Cinematic)</option>
+                    <option value={30}>30 FPS (Ultra Smooth)</option>
+                    <option value="custom">Custom FPS</option>
+                  </select>
+                  
+                  {/* Custom FPS Input */}
+                  {(customFPS !== '' || avatarFPS === 'custom') && (
+                    <div className="fps-input-group">
+                      <label>Custom:</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="60"
+                        value={customFPS}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setCustomFPS(value);
+                          if (value && !isNaN(parseInt(value))) {
+                            setAvatarFPS(parseInt(value));
+                          }
+                        }}
+                        placeholder="1-60"
+                        className="fps-custom-input"
+                        disabled={isListening || isGeneratingIdle}
+                      />
+                      <span>FPS</span>
+                    </div>
+                  )}
+                  
+                  <div className="setting-description">
+                    Higher FPS = smoother video, slower generation
+                  </div>
+                  
+                  {/* Clear Cache Button - Comprehensive Clear */}
+                  <button
+                    className="clear-cache-btn"
+                    onClick={clearAvatarCache}
+                    disabled={isListening || isGeneratingIdle || isClearingCache}
+                    title="COMPREHENSIVE CACHE CLEAR: Removes all avatar caches including memory, temp files, outputs, and preprocessed images. Use after changing FPS or cropping settings."
+                  >
+                    {isClearingCache ? '🧹 Clearing All Caches...' : '🧹 Clear All Caches'}
+                  </button>
+                  <div className="setting-description" style={{ fontSize: '11px', marginTop: '8px', color: '#888' }}>
+                    ⚠️ Comprehensive clear: Removes all avatar data. Re-upload pictures after clearing.
+                  </div>
+                </div>
                 
                 {/* Generate Idle Animation Button */}
                 <button

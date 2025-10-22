@@ -81,6 +81,11 @@ class AvatarGenerator:
         
         logger.info(f"Avatar generator created (device={device}, size={size})")
     
+    def clear_cache(self):
+        """Clear the image cache to force re-preprocessing."""
+        self._image_cache.clear()
+        logger.info("🧹 Avatar generator cache cleared")
+    
     def initialize(self):
         """Initialize SadTalker models (lazy loading)."""
         if self.initialized:
@@ -116,7 +121,7 @@ class AvatarGenerator:
             logger.error(f"❌ Failed to initialize SadTalker: {e}")
             raise
     
-    def _preprocess_image_cached(self, image_path: str, preprocess: str = 'crop'):
+    def _preprocess_image_cached(self, image_path: str, preprocess: str = 'crop', pic_size: int = None):
         """
         Preprocess image and cache the result for reuse.
         This avoids re-extracting 3DMM for every chunk!
@@ -124,6 +129,7 @@ class AvatarGenerator:
         Args:
             image_path: Path to reference image
             preprocess: Preprocessing mode
+            pic_size: Image size (256 or 512). If None, uses self.size
             
         Returns:
             Tuple of (first_coeff_path, crop_pic_path, crop_info)
@@ -131,14 +137,17 @@ class AvatarGenerator:
         if not self.initialized:
             self.initialize()
         
-        # Check cache first
-        cache_key = f"{image_path}_{preprocess}_{self.size}"
+        # Use provided pic_size or fall back to self.size
+        effective_size = pic_size if pic_size is not None else self.size
+        
+        # Check cache first (include size in cache key)
+        cache_key = f"{image_path}_{preprocess}_{effective_size}"
         if cache_key in self._image_cache:
-            logger.info(f"✅ Using cached preprocessed image for {os.path.basename(image_path)}")
+            logger.info(f"✅ Using cached preprocessed image for {os.path.basename(image_path)} ({effective_size}x{effective_size})")
             return self._image_cache[cache_key]
         
         # Preprocess image (first time only)
-        logger.info(f"📷 Preprocessing image {os.path.basename(image_path)} (will be cached)...")
+        logger.info(f"📷 Preprocessing image {os.path.basename(image_path)} at {effective_size}x{effective_size} (will be cached)...")
         
         import tempfile
         temp_dir = tempfile.mkdtemp(prefix='sadtalker_cache_')
@@ -151,7 +160,7 @@ class AvatarGenerator:
                 first_frame_dir,
                 preprocess,
                 source_image_flag=True,
-                pic_size=self.size
+                pic_size=effective_size
             )
             
             if first_coeff_path is None:
@@ -175,7 +184,9 @@ class AvatarGenerator:
         output_dir: str,
         still_mode: bool = True,
         preprocess: str = 'crop',
-        expression_scale: float = 1.0
+        expression_scale: float = 1.0,
+        pic_size: int = None,
+        enable_enhancer: bool = True
     ) -> Optional[str]:
         """
         Generate avatar video from audio and image.
@@ -185,8 +196,10 @@ class AvatarGenerator:
             image_path: Path to reference image
             output_dir: Output directory for video
             still_mode: Enable still mode for better quality
-            preprocess: Preprocessing mode ('crop' or 'full')
+            preprocess: Preprocessing mode ('crop', 'full', 'extcrop', 'extfull')
             expression_scale: Expression intensity (0.0-2.0)
+            pic_size: Image size (256 or 512). If None, uses self.size
+            enable_enhancer: Enable GFPGAN face enhancement (better quality, slower)
             
         Returns:
             Path to generated video file, or None if failed
@@ -194,10 +207,15 @@ class AvatarGenerator:
         if not self.initialized:
             self.initialize()
         
+        # Use provided pic_size or fall back to self.size
+        effective_size = pic_size if pic_size is not None else self.size
+        
         try:
             logger.info(f"🎬 Generating avatar video...")
             logger.info(f"  Audio: {audio_path}")
             logger.info(f"  Image: {image_path}")
+            logger.info(f"  Preprocess: {preprocess}")
+            logger.info(f"  Image size: {effective_size}x{effective_size}")
             
             # Import required modules
             from src.generate_batch import get_data
@@ -224,7 +242,9 @@ class AvatarGenerator:
                 save_dir,
                 still_mode,
                 preprocess,
-                expression_scale
+                expression_scale,
+                effective_size,
+                enable_enhancer
             )
             
             return video_path
@@ -240,7 +260,9 @@ class AvatarGenerator:
         save_dir: str,
         still_mode: bool,
         preprocess: str,
-        expression_scale: float
+        expression_scale: float,
+        pic_size: int = 256,
+        enable_enhancer: bool = True
     ) -> Optional[str]:
         """
         Synchronous avatar generation (runs in executor).
@@ -254,8 +276,8 @@ class AvatarGenerator:
             
             start_time = time.time()
             
-            # Step 1: Get preprocessed image (CACHED! No re-extraction)
-            first_coeff_path, crop_pic_path, crop_info = self._preprocess_image_cached(image_path, preprocess)
+            # Step 1: Get preprocessed image (with custom size)
+            first_coeff_path, crop_pic_path, crop_info = self._preprocess_image_cached(image_path, preprocess, pic_size=pic_size)
             
             if first_coeff_path is None:
                 logger.error("Failed to get preprocessed image")
@@ -290,12 +312,16 @@ class AvatarGenerator:
                 size=self.size
             )
             
+            # Apply face enhancement
+            enhancer_to_use = self.enhancer if enable_enhancer else None
+            logger.info(f"🎨 Face Enhancement: {'ENABLED' if enable_enhancer else 'DISABLED'} (enhancer={enhancer_to_use})")
+            
             result = self.animate_from_coeff.generate(
                 data,
                 save_dir,
                 image_path,
                 crop_info,
-                enhancer=self.enhancer,
+                enhancer=enhancer_to_use,
                 background_enhancer=None,
                 preprocess=preprocess,
                 img_size=self.size
@@ -328,7 +354,10 @@ class AvatarGenerator:
         self,
         audio_path: str,
         image_path: str,
-        output_dir: str
+        output_dir: str,
+        preprocess: str = 'crop',
+        pic_size: int = None,
+        enable_enhancer: bool = True
     ) -> Optional[str]:
         """
         Generate avatar with optimized settings for streaming (faster but lower quality).
@@ -337,6 +366,9 @@ class AvatarGenerator:
             audio_path: Path to audio file
             image_path: Path to reference image
             output_dir: Output directory
+            preprocess: Preprocessing mode ('crop', 'full', 'extcrop', 'extfull')
+            pic_size: Image quality (256 or 512). If None, uses default
+            enable_enhancer: Enable GFPGAN face enhancement
             
         Returns:
             Path to generated video
@@ -347,8 +379,10 @@ class AvatarGenerator:
             image_path=image_path,
             output_dir=output_dir,
             still_mode=True,  # Still mode is faster (no pose changes)
-            preprocess='crop',  # Crop is faster than full
-            expression_scale=0.8  # Slightly reduced for faster processing
+            preprocess=preprocess,  # User-selected preprocess mode
+            expression_scale=0.8,  # Slightly reduced for faster processing
+            pic_size=pic_size,  # User-selected image quality
+            enable_enhancer=enable_enhancer  # User-selected enhancement
         )
 
 
@@ -420,7 +454,10 @@ async def generate_avatar(
     audio_path: str,
     image_path: str,
     output_dir: str,
-    fast_mode: bool = True
+    fast_mode: bool = True,
+    preprocess: str = 'crop',
+    pic_size: int = None,
+    enable_enhancer: bool = True
 ) -> Optional[str]:
     """
     Generate avatar video (convenience function).
@@ -430,6 +467,9 @@ async def generate_avatar(
         image_path: Path to reference image
         output_dir: Output directory
         fast_mode: Use fast settings for near real-time
+        preprocess: Preprocessing mode ('crop', 'full', 'extcrop', 'extfull')
+        pic_size: Image quality (256 or 512). If None, uses default
+        enable_enhancer: Enable GFPGAN face enhancement
         
     Returns:
         Path to generated video or None
@@ -441,9 +481,23 @@ async def generate_avatar(
         return None
     
     if fast_mode:
-        return await generator.generate_avatar_streaming(audio_path, image_path, output_dir)
+        return await generator.generate_avatar_streaming(
+            audio_path, 
+            image_path, 
+            output_dir,
+            preprocess=preprocess,
+            pic_size=pic_size,
+            enable_enhancer=enable_enhancer
+        )
     else:
-        return await generator.generate_avatar_video(audio_path, image_path, output_dir)
+        return await generator.generate_avatar_video(
+            audio_path, 
+            image_path, 
+            output_dir,
+            preprocess=preprocess,
+            pic_size=pic_size,
+            enable_enhancer=enable_enhancer
+        )
 
 
 async def generate_avatar_parallel(

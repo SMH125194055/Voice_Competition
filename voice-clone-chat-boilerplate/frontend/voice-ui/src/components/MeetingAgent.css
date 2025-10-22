@@ -434,6 +434,61 @@
   text-align: center;
 }
 
+/* Setting Description */
+.setting-description {
+  font-size: 12px;
+  color: #9aa0a6;
+  margin-top: 4px;
+  font-style: italic;
+}
+
+/* Custom FPS Input */
+.fps-input-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.fps-custom-input {
+  width: 80px;
+  padding: 6px 8px;
+  background: #2d2d2d;
+  border: 1px solid #3c4043;
+  border-radius: 4px;
+  color: #e8eaed;
+  font-size: 14px;
+}
+
+.fps-custom-input:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+/* Clear Cache Button */
+.clear-cache-btn {
+  background: linear-gradient(135deg, #ea4335 0%, #d33b2c 100%);
+  border: none;
+  border-radius: 6px;
+  color: white;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin-top: 8px;
+}
+
+.clear-cache-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(234, 67, 53, 0.4);
+}
+
+.clear-cache-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .restore-video-btn {
   padding: 12px 24px;
   background: #3c4043;

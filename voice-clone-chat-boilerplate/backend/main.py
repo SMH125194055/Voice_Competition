@@ -1704,11 +1704,24 @@ async def generate_idle_animation(request: Request):
         body = await request.json()
         picture_id = body.get('picture_id')
         duration = body.get('duration', 3)
+        fps = body.get('fps', 12)  # Get FPS from frontend, default 12
+        # Valid SadTalker preprocess modes: 'crop', 'extcrop', 'full', 'extfull'
+        preprocess = body.get('preprocess', 'crop')
+        if preprocess not in ['crop', 'extcrop', 'full', 'extfull']:
+            preprocess = 'crop'  # Fallback to safe default
+        pic_size = body.get('pic_size', 256)  # Get image quality: 256 or 512
+        enable_enhancement = body.get('enable_enhancement', True)  # Face enhancement toggle
+        
+        logger.info(f"🎬 Idle Animation Settings: FPS={fps}, Preprocess={preprocess}, Size={pic_size}x{pic_size}")
+        if enable_enhancement:
+            logger.info(f"🎨 Face Enhancement: ✅ ENABLED (GFPGAN will improve face quality)")
+        else:
+            logger.info(f"🎨 Face Enhancement: ❌ DISABLED (faster but lower quality)")
         
         if not picture_id:
             raise HTTPException(status_code=400, detail="picture_id is required")
         
-        logger.info(f"🎬 Generating idle animation for picture: {picture_id}, duration: {duration}s")
+        logger.info(f"🎬 Generating idle animation for picture: {picture_id}, duration: {duration}s, preprocess: {preprocess}, size: {pic_size}x{pic_size}")
         
         # Get the reference picture path
         ref_dir = get_reference_picture_dir()
@@ -1733,6 +1746,10 @@ async def generate_idle_animation(request: Request):
         temp_audio.close()
         
         try:
+            # Set FPS environment variable for SadTalker
+            os.environ['SADTALKER_FPS'] = str(fps)
+            logger.info(f"🎬 Using FPS: {fps}")
+            
             # Generate idle video using SadTalker
             avatar_gen = get_avatar_generator()
             if not avatar_gen:
@@ -1744,8 +1761,10 @@ async def generate_idle_animation(request: Request):
                 image_path=picture_path,
                 output_dir='outputs/idle_animations',
                 still_mode=False,  # Allow subtle movements for liveness
-                preprocess='crop',
-                expression_scale=0.3  # Subtle movements for idle state
+                preprocess=preprocess,  # Use user-selected preprocess mode
+                expression_scale=0.3,  # Subtle movements for idle state
+                pic_size=pic_size,  # Use user-selected image quality
+                enable_enhancer=enable_enhancement  # Use user-selected face enhancement
             )
             
             # Clean up temp audio
@@ -1783,6 +1802,120 @@ async def generate_idle_animation(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/clear-avatar-cache")
+async def clear_avatar_cache():
+    """
+    COMPREHENSIVE cache clearing - clears ALL avatar caches including:
+    - Memory cache
+    - Temp directories
+    - Output directories
+    - Python cache
+    - SadTalker preprocessed images
+    
+    This is equivalent to running force_clear_cache.py
+    """
+    try:
+        logger.info("🧹 FORCE CLEARING ALL AVATAR CACHES...")
+        
+        # 1. Clear avatar generator memory cache
+        logger.info("🧠 Clearing memory cache...")
+        avatar_gen = get_avatar_generator()
+        if avatar_gen:
+            avatar_gen.clear_cache()
+            logger.info("✅ Avatar generator memory cache cleared")
+        
+        # 2. Clear temp directories
+        import shutil
+        import glob
+        
+        logger.info("🗂️  Clearing temp directories...")
+        backend_dir = os.path.dirname(os.path.abspath(__file__))
+        temp_patterns = [
+            '/tmp/sadtalker_cache_*',
+            '/tmp/avatar_*',
+            '/tmp/*sadtalker*',
+            os.path.join(backend_dir, 'temp'),
+            os.path.join(backend_dir, 'tmp'),
+        ]
+        
+        cleared_count = 0
+        for pattern in temp_patterns:
+            for path in glob.glob(pattern):
+                try:
+                    if os.path.isfile(path):
+                        os.remove(path)
+                        cleared_count += 1
+                        logger.info(f"  ✅ Removed file: {path}")
+                    elif os.path.isdir(path):
+                        shutil.rmtree(path)
+                        cleared_count += 1
+                        logger.info(f"  ✅ Removed directory: {path}")
+                except Exception as e:
+                    logger.warning(f"Could not remove {path}: {e}")
+        
+        # 3. Clear outputs directory (but keep structure)
+        logger.info("📁 Clearing outputs directory...")
+        outputs_dir = os.path.join(backend_dir, 'outputs')
+        if os.path.exists(outputs_dir):
+            try:
+                shutil.rmtree(outputs_dir)
+                os.makedirs(outputs_dir, exist_ok=True)
+                os.makedirs(os.path.join(outputs_dir, 'idle_animations'), exist_ok=True)
+                cleared_count += 1
+                logger.info(f"  ✅ Cleared: {outputs_dir}")
+            except Exception as e:
+                logger.warning(f"Could not clear outputs: {e}")
+        
+        # 4. Clear Python __pycache__
+        logger.info("🐍 Clearing Python cache...")
+        for root, dirs, files in os.walk(backend_dir):
+            for dir_name in dirs:
+                if dir_name == '__pycache__':
+                    pycache_path = os.path.join(root, dir_name)
+                    try:
+                        shutil.rmtree(pycache_path)
+                        cleared_count += 1
+                        logger.info(f"  ✅ Removed: {pycache_path}")
+                    except Exception as e:
+                        logger.warning(f"Could not remove {pycache_path}: {e}")
+        
+        # 5. Clear SadTalker specific caches
+        logger.info("🎬 Clearing SadTalker caches...")
+        sadtalker_dirs = [
+            os.path.join(backend_dir, 'Avatar', 'SadTalker', 'checkpoints'),
+            os.path.join(backend_dir, 'Avatar', 'SadTalker', 'src', 'config'),
+        ]
+        
+        for cache_dir in sadtalker_dirs:
+            if os.path.exists(cache_dir):
+                # Only clear cache files, not model files
+                for file_path in glob.glob(os.path.join(cache_dir, '*cache*')):
+                    try:
+                        os.remove(file_path)
+                        cleared_count += 1
+                        logger.info(f"  ✅ Removed cache: {os.path.basename(file_path)}")
+                    except Exception as e:
+                        logger.warning(f"Could not remove {file_path}: {e}")
+        
+        logger.info(f"✅ ALL CACHES CLEARED! ({cleared_count} items removed)")
+        
+        return JSONResponse({
+            "success": True,
+            "message": f"All avatar caches cleared successfully! ({cleared_count} items removed)",
+            "cleared_items": cleared_count,
+            "next_steps": [
+                "Re-upload your reference picture",
+                "Generate new idle animation",
+                "Start new conversation",
+                "Avatar will now use updated settings!"
+            ]
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Cache clear error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/vad-chat-avatar-stream")
 async def vad_chat_avatar_stream(
     request: Request,
@@ -1791,7 +1924,11 @@ async def vad_chat_avatar_stream(
     reference_voice_id: str = Form(None),
     reference_picture_id: str = Form(None),
     enable_avatar: str = Form("true"),
-    allow_interruption: str = Form("true")
+    allow_interruption: str = Form("true"),
+    avatar_fps: str = Form("12"),
+    avatar_preprocess: str = Form("crop"),
+    avatar_pic_size: str = Form("256"),
+    enable_enhancement: str = Form("true")
 ):
     """
     🚀 STREAMING conversation endpoint with AVATAR generation using SSE.
@@ -1809,6 +1946,9 @@ async def vad_chat_avatar_stream(
         reference_picture_id: ID of reference picture for avatar
         enable_avatar: "true" or "false"
         allow_interruption: "true" or "false"
+        avatar_fps: Avatar FPS (5, 9, 12, 15, 24, 30, custom)
+        avatar_preprocess: Preprocessing mode ('crop', 'full', 'resize')
+        avatar_pic_size: Image quality ('256' or '512')
         
     Returns:
         SSE stream with voice + avatar video
@@ -1820,6 +1960,19 @@ async def vad_chat_avatar_stream(
     voice_mode = voice_mode.lower()
     enable_avatar_bool = enable_avatar.lower() == "true" and AVATAR_ENABLED
     allow_interruption_bool = allow_interruption.lower() == "true"
+    fps = int(avatar_fps) if avatar_fps.isdigit() else 12
+    # Valid SadTalker preprocess modes: 'crop', 'extcrop', 'full', 'extfull'
+    preprocess_mode = avatar_preprocess if avatar_preprocess in ['crop', 'extcrop', 'full', 'extfull'] else 'crop'
+    image_size = int(avatar_pic_size) if avatar_pic_size.isdigit() and int(avatar_pic_size) in [256, 512] else 256
+    enable_face_enhancement = enable_enhancement.lower() == "true"
+    
+    # Set FPS environment variable for SadTalker
+    os.environ['SADTALKER_FPS'] = str(fps)
+    logger.info(f"🎬 Avatar settings: FPS={fps}, Preprocess={preprocess_mode}, Size={image_size}x{image_size}")
+    if enable_face_enhancement:
+        logger.info(f"🎨 Face Enhancement: ✅ ENABLED (GFPGAN will improve face quality)")
+    else:
+        logger.info(f"🎨 Face Enhancement: ❌ DISABLED (faster but lower quality)")
     
     logger.info(f"🎬 Avatar settings: enable_avatar={enable_avatar}, AVATAR_ENABLED={AVATAR_ENABLED}, enable_avatar_bool={enable_avatar_bool}")
     
@@ -1993,7 +2146,10 @@ async def vad_chat_avatar_stream(
                                     audio_path=chunk_audio_path,
                                     image_path=reference_picture_path,
                                     output_dir=AVATAR_OUTPUT_DIR,
-                                    fast_mode=True
+                                    fast_mode=True,
+                                    preprocess=preprocess_mode,
+                                    pic_size=image_size,
+                                    enable_enhancer=enable_face_enhancement
                                 )
                                 
                                 if avatar_video_path and os.path.exists(avatar_video_path):
