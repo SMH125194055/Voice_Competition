@@ -399,6 +399,7 @@ def initialize_avatar_generator(
 ):
     """
     Initialize global avatar generator with parallel processing pool.
+    Supports both SadTalker and Ditto-TalkingHead based on AVATAR_MODEL env var.
     
     Args:
         device: 'cuda:0', 'cuda:1', 'cuda', 'cpu', etc. If None, uses AVATAR_DEVICE env var
@@ -409,10 +410,30 @@ def initialize_avatar_generator(
     global _avatar_generator, _avatar_generator_pool, _pool_size
     
     try:
+        # Check which avatar model to use
+        avatar_model = os.getenv("AVATAR_MODEL", "sadtalker").lower()
+        
         # If device not specified, check AVATAR_DEVICE environment variable
         if device is None:
             device = os.getenv("AVATAR_DEVICE", "cuda")
             logger.info(f"Using AVATAR_DEVICE from environment: {device}")
+        
+        # 🔄 SWITCH: Initialize based on AVATAR_MODEL
+        if avatar_model == "ditto":
+            logger.info(f"🎬 Initializing DITTO-TALKINGHEAD avatar generator...")
+            from utils.ditto_avatar_generator import DittoAvatarGenerator
+            
+            _avatar_generator = DittoAvatarGenerator(
+                device=device,
+                size=size,
+                enhancer=enhancer
+            )
+            _avatar_generator.initialize()
+            logger.info(f"✅ Ditto avatar generator initialized (device={device})")
+            return True
+        
+        # Default: SadTalker
+        logger.info(f"🎬 Initializing SADTALKER avatar generator...")
         
         # Determine paths
         backend_dir = os.path.dirname(os.path.dirname(__file__))
@@ -461,6 +482,7 @@ async def generate_avatar(
 ) -> Optional[str]:
     """
     Generate avatar video (convenience function).
+    Works with both SadTalker and Ditto-TalkingHead.
     
     Args:
         audio_path: Path to audio file
@@ -480,7 +502,9 @@ async def generate_avatar(
         logger.error("Avatar generator not initialized")
         return None
     
-    if fast_mode:
+    # Check if generator has streaming method (SadTalker specific)
+    if hasattr(generator, 'generate_avatar_streaming') and fast_mode:
+        # SadTalker with streaming
         return await generator.generate_avatar_streaming(
             audio_path, 
             image_path, 
@@ -490,13 +514,15 @@ async def generate_avatar(
             enable_enhancer=enable_enhancer
         )
     else:
+        # Ditto or SadTalker non-streaming
         return await generator.generate_avatar_video(
             audio_path, 
             image_path, 
             output_dir,
             preprocess=preprocess,
             pic_size=pic_size,
-            enable_enhancer=enable_enhancer
+            enable_enhancer=enable_enhancer,
+            fast_mode=fast_mode
         )
 
 
