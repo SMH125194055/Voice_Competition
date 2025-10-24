@@ -1,0 +1,256 @@
+{
+	"info": {
+		"_postman_id": "ditto-online-streaming-001",
+		"name": "Ditto Online Streaming API",
+		"description": "Test collection for Ditto's online streaming mode\n\n**NEW PIPELINE** - Doesn't interfere with existing backend/frontend",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. Check Status",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:8000/api/ditto-online/status",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8000",
+					"path": [
+						"api",
+						"ditto-online",
+						"status"
+					]
+				},
+				"description": "Check if the Ditto online streaming API is ready"
+			},
+			"response": []
+		},
+		{
+			"name": "2. Initialize Pipeline (Optional)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "http://localhost:8000/api/ditto-online/initialize",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8000",
+					"path": [
+						"api",
+						"ditto-online",
+						"initialize"
+					]
+				},
+				"description": "Manually initialize the pipeline (optional - auto-initializes on first use)"
+			},
+			"response": []
+		},
+		{
+			"name": "3. Generate Streaming Video - Short Text",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					},
+					{
+						"key": "Accept",
+						"value": "text/event-stream",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"text\": \"Hello! This is a test of Ditto's online streaming mode.\",\n    \"emotion\": 4,\n    \"gaze\": true,\n    \"chunk_duration\": 3.0\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8000/api/ditto-online/generate",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8000",
+					"path": [
+						"api",
+						"ditto-online",
+						"generate"
+					]
+				},
+				"description": "Generate a video using online streaming mode with short text.\n\nThis will return Server-Sent Events (SSE) with progress updates."
+			},
+			"response": []
+		},
+		{
+			"name": "4. Generate Streaming Video - Long Text",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					},
+					{
+						"key": "Accept",
+						"value": "text/event-stream",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"text\": \"India and Pakistan are two neighboring countries in South Asia with a complex shared history. They were part of British India until 1947, when they gained independence and were partitioned into two separate nations. This partition led to significant political and social upheaval, including the displacement of millions of people and ongoing tensions. Both countries have diverse cultures, languages, and religions, with India being predominantly Hindu and Pakistan being predominantly Muslim.\",\n    \"emotion\": 4,\n    \"gaze\": true,\n    \"chunk_duration\": 3.0\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8000/api/ditto-online/generate",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8000",
+					"path": [
+						"api",
+						"ditto-online",
+						"generate"
+					]
+				},
+				"description": "Generate a video with longer text to see multiple streaming chunks."
+			},
+			"response": []
+		},
+		{
+			"name": "5. Generate with Happy Emotion",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					},
+					{
+						"key": "Accept",
+						"value": "text/event-stream",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"text\": \"I'm so excited to show you this amazing new feature! Online streaming mode is incredible!\",\n    \"emotion\": 3,\n    \"gaze\": true,\n    \"chunk_duration\": 2.5\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8000/api/ditto-online/generate",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8000",
+					"path": [
+						"api",
+						"ditto-online",
+						"generate"
+					]
+				},
+				"description": "Test with happy emotion (emotion=3)\n\nEmotions:\n- 0: Angry\n- 1: Disgust\n- 2: Fear\n- 3: Happy\n- 4: Neutral\n- 5: Sad\n- 6: Surprise\n- 7: Contempt"
+			},
+			"response": []
+		},
+		{
+			"name": "6. Generate with Custom Paths",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					},
+					{
+						"key": "Accept",
+						"value": "text/event-stream",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"text\": \"Testing with custom reference image and audio paths.\",\n    \"reference_image\": \"/home/syedhuzaifa/Voice_Competition/voice-clone-chat-boilerplate/backend/Avatar/References/ref_1761131562372.jpg\",\n    \"reference_audio\": \"/home/syedhuzaifa/Voice_Competition/voice-clone-chat-boilerplate/backend/audio/reference_voices/ref_1761118578.wav\",\n    \"emotion\": 4,\n    \"gaze\": true,\n    \"chunk_duration\": 3.0\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8000/api/ditto-online/generate",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8000",
+					"path": [
+						"api",
+						"ditto-online",
+						"generate"
+					]
+				},
+				"description": "Test with custom reference image and audio paths"
+			},
+			"response": []
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000",
+			"type": "string"
+		}
+	]
+}
+

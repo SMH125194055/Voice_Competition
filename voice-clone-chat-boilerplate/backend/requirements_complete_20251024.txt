@@ -1,12 +1,30 @@
 # ============================================================================
-# BACKEND REQUIREMENTS - Voice Competition Project
+# COMPLETE REQUIREMENTS - Voice Competition Project
 # ============================================================================
+# Created: October 24, 2025
 # Python Version: 3.12.3
 # CUDA Version: 12.1+
+# 
+# This file includes ALL dependencies for:
+# - ChatterBox TTS (Text-to-Speech)
+# - SadTalker (Avatar Generation)
+# - Ditto-TalkingHead (Avatar Generation - Primary)
+# - Whisper STT (Speech-to-Text)
+# 
+# INSTALLATION:
+# 1. Install PyTorch with CUDA first:
+#    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+# 2. Install all requirements:
+#    pip install -r requirements_complete_20251024.txt
+# 3. Install Perth (special case):
+#    pip install git+https://github.com/KwaiVGI/perth.git
+# 4. Download model weights:
+#    python download_model_weights.py
+# 
 # ============================================================================
 
 # ============================================================================
-# CORE WEB FRAMEWORK
+# CORE WEB FRAMEWORK & API
 # ============================================================================
 fastapi==0.115.4
 uvicorn[standard]==0.32.0
@@ -19,15 +37,16 @@ requests==2.32.3
 httpx==0.27.2
 
 # ============================================================================
-# PYTORCH & CUDA
-# Install separately: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+# PYTORCH & DEEP LEARNING
+# Install separately BEFORE this file:
+# pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121
 # ============================================================================
-torch==2.5.1
-torchvision==0.20.1
-torchaudio==2.5.1
+# torch==2.5.1
+# torchvision==0.20.1
+# torchaudio==2.5.1
 
 # ============================================================================
-# AUDIO PROCESSING
+# AUDIO PROCESSING (Required for all models)
 # ============================================================================
 librosa==0.10.2.post1
 soundfile==0.12.1
@@ -38,7 +57,7 @@ pydub==0.25.1
 noisereduce==3.0.2
 
 # ============================================================================
-# STT (Speech-to-Text)
+# SPEECH-TO-TEXT (Whisper)
 # ============================================================================
 openai-whisper==20231117
 faster-whisper==1.0.3
@@ -46,7 +65,8 @@ transformers==4.46.2
 tokenizers==0.20.3
 
 # ============================================================================
-# TTS (Text-to-Speech) - ChatterBox
+# TEXT-TO-SPEECH (ChatterBox)
+# Dependencies for voice cloning TTS
 # ============================================================================
 diffusers==0.31.0
 accelerate==1.1.1
@@ -56,7 +76,7 @@ safetensors==0.4.5
 vocos==0.1.0
 
 # ============================================================================
-# COMPUTER VISION
+# COMPUTER VISION & IMAGE PROCESSING (Required for all avatar models)
 # ============================================================================
 opencv-python==4.10.0.84
 opencv-contrib-python==4.10.0.84
@@ -66,7 +86,8 @@ imageio-ffmpeg==0.5.1
 scikit-image==0.24.0
 
 # ============================================================================
-# DITTO DEPENDENCIES
+# DITTO-TALKINGHEAD DEPENDENCIES
+# Primary avatar generation model
 # ============================================================================
 mediapipe==0.10.14
 onnxruntime-gpu==1.19.2
@@ -78,6 +99,7 @@ albumentations==1.4.18
 
 # ============================================================================
 # SADTALKER DEPENDENCIES
+# Alternative avatar generation model
 # ============================================================================
 yacs==0.1.8
 kornia==0.7.3
@@ -87,14 +109,40 @@ basicsr==1.4.2
 
 # ============================================================================
 # PERTH (Face Landmarks)
-# Install separately: pip install git+https://github.com/KwaiVGI/perth.git
+# Install separately AFTER this file:
+# pip install git+https://github.com/KwaiVGI/perth.git
 # ============================================================================
 
 # ============================================================================
-# UTILITIES
+# UTILITY LIBRARIES
 # ============================================================================
 numpy==1.26.4
 pandas==2.2.3
 matplotlib==3.9.2
 tqdm==4.66.5
 tensorboard==2.18.0
+
+# ============================================================================
+# INSTALLATION ORDER:
+# ============================================================================
+# 1. System: sudo apt install ffmpeg
+# 2. PyTorch: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+# 3. This file: pip install -r requirements_complete_20251024.txt
+# 4. Perth: pip install git+https://github.com/KwaiVGI/perth.git
+# 5. Weights: python download_model_weights.py
+# 
+# ============================================================================
+# MODEL WEIGHTS (Downloaded automatically or via script):
+# ============================================================================
+# ChatterBox TTS: ~/.cache/huggingface/ (~1.6 GB) - Auto-downloads
+# Whisper STT: ~/.cache/whisper/ (~140 MB) - Auto-downloads
+# Perth: ~/.cache/perth/ (~200 MB) - Auto-downloads
+# InsightFace: ~/.insightface/ (~300 MB) - Auto-downloads
+# Ditto: backend/Avatar/ditto-talkinghead/checkpoints/ (~2 GB) - Manual/Script
+# SadTalker: backend/Avatar/SadTalker/checkpoints/ (~1.7 GB) - Manual/Script
+# 
+# Total: ~6 GB minimum (Ditto + auto-downloads)
+# Full: ~8 GB with SadTalker
+# 
+# ============================================================================
+

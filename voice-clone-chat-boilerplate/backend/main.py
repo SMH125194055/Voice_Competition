@@ -187,6 +187,54 @@ idle_animations_dir = "outputs/idle_animations"
 os.makedirs(idle_animations_dir, exist_ok=True)
 app.mount("/avatars/idle_animations", StaticFiles(directory=idle_animations_dir), name="idle_animations")
 
+# Include NEW Ditto Online Streaming API (doesn't interfere with existing code)
+try:
+    from api.ditto_online_streaming import router as ditto_online_router
+    app.include_router(ditto_online_router)
+    logger.info("✅ Ditto Online Streaming API loaded")
+except Exception as e:
+    logger.warning(f"⚠️  Ditto Online Streaming API not loaded: {e}")
+
+# Include TRUE Streaming API (Text → Audio Chunks → Video Chunks, <5s first chunk)
+try:
+    from api.ditto_true_streaming import router as ditto_true_streaming_router
+    app.include_router(ditto_true_streaming_router)
+    logger.info("✅ Ditto True Streaming API loaded (first chunk <5s)")
+except Exception as e:
+    logger.warning(f"⚠️  Ditto True Streaming API not loaded: {e}")
+
+# Include OPTIMIZED Streaming API (Offline Mode + Pre-warming = <5s guaranteed!)
+try:
+    from api.ditto_optimized_streaming import router as ditto_optimized_router
+    app.include_router(ditto_optimized_router)
+    logger.info("✅ Ditto Optimized Streaming API loaded (offline mode + pre-warming)")
+except Exception as e:
+    logger.warning(f"⚠️  Ditto Optimized Streaming API not loaded: {e}")
+
+# Include FIXED Online Mode (SDK pool fixes state issues - all chunks work!)
+try:
+    from api.ditto_online_fixed import router as ditto_online_fixed_router
+    app.include_router(ditto_online_fixed_router)
+    logger.info("✅ Ditto Online FIXED API loaded (SDK pool, all chunks work!)")
+except Exception as e:
+    logger.warning(f"⚠️  Ditto Online FIXED API not loaded: {e}")
+
+# Include PIPELINED Streaming (Audio streaming + Video streaming = <8s first video!)
+try:
+    from api.ditto_pipelined_streaming import router as ditto_pipelined_router
+    app.include_router(ditto_pipelined_router)
+    logger.info("✅ Ditto PIPELINED Streaming API loaded (<8s first video!)")
+except Exception as e:
+    logger.warning(f"⚠️  Ditto PIPELINED Streaming API not loaded: {e}")
+
+# Include CASCADE Streaming (Overlapping calls to existing endpoint = <8s + NO GAPS!)
+try:
+    from api.ditto_cascade_streaming import router as ditto_cascade_router
+    app.include_router(ditto_cascade_router)
+    logger.info("✅ Ditto CASCADE Streaming API loaded (overlapping chunks, <8s!)")
+except Exception as e:
+    logger.warning(f"⚠️  Ditto CASCADE Streaming API not loaded: {e}")
+
 
 # Pydantic models
 class ChatRequest(BaseModel):
