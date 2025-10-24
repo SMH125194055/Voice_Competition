@@ -370,3 +370,5 @@ AVATAR_MODEL = "musetalk"  # Switch from sadtalker
 
 **Start using it now: http://localhost:7860** 🚀🎭✨
 
+
+

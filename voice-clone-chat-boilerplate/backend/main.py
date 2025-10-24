@@ -189,6 +189,30 @@ try:
 except Exception as e:
     logger.warning(f"⚠️  Parallel pipeline routes not loaded: {e}")
 
+# Include WebSocket video streaming router (ZERO DISK I/O!)
+try:
+    from api.video_stream_ws import router as video_stream_router
+    app.include_router(video_stream_router)
+    logger.info("✅ WebSocket video streaming routes loaded")
+except Exception as e:
+    logger.warning(f"⚠️  WebSocket video streaming routes not loaded: {e}")
+
+# Include Real-Time WebSocket Streaming (TARGET: <5S FIRST CHUNK!)
+try:
+    from api.realtime_websocket import router as realtime_router
+    app.include_router(realtime_router)
+    logger.info("✅ Real-time WebSocket streaming routes loaded")
+except Exception as e:
+    logger.warning(f"⚠️  Real-time WebSocket streaming routes not loaded: {e}")
+
+# Include Ultra-Fast Parallel Pipeline (TINY CHUNKS!)
+try:
+    from api.ultra_fast_pipeline import router as ultra_fast_router
+    app.include_router(ultra_fast_router)
+    logger.info("✅ Ultra-fast parallel pipeline routes loaded")
+except Exception as e:
+    logger.warning(f"⚠️  Ultra-fast parallel pipeline routes not loaded: {e}")
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,

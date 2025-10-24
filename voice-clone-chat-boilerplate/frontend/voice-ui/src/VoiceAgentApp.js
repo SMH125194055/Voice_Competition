@@ -4,10 +4,11 @@ import RealTimeVoiceAgent from './components/RealTimeVoiceAgent';
 import VADVoiceAgent from './components/VADVoiceAgent';
 import LargeVideoAgent from './components/LargeVideoAgent';
 import MeetingAgent from './components/MeetingAgent';
+import ParallelPipelineAgent from './components/ParallelPipelineAgent';
 import App from './App';
 
 const VoiceAgentApp = () => {
-  const [mode, setMode] = useState('meeting'); // 'meeting', 'realtime', 'vad', 'large-video', or 'history'
+  const [mode, setMode] = useState('parallel'); // 'meeting', 'realtime', 'vad', 'large-video', 'parallel', or 'history'
 
   return (
     <div>
@@ -52,6 +53,22 @@ const VoiceAgentApp = () => {
           }}
         >
           🎬 Large Video
+        </button>
+        <button
+          onClick={() => setMode('parallel')}
+          style={{
+            padding: '0.8rem 1.5rem',
+            borderRadius: '8px',
+            border: 'none',
+            background: mode === 'parallel' ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' : 'rgba(255,255,255,0.2)',
+            color: 'white',
+            fontWeight: '600',
+            cursor: 'pointer',
+            boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
+            transition: 'all 0.3s ease'
+          }}
+        >
+          ⚡ Parallel Pipeline
         </button>
         <button
           onClick={() => setMode('vad')}
@@ -106,6 +123,7 @@ const VoiceAgentApp = () => {
       {/* Render ONLY Active Mode (prevents multiple VAD instances) */}
       {mode === 'meeting' && <MeetingAgent />}
       {mode === 'large-video' && <LargeVideoAgent />}
+      {mode === 'parallel' && <ParallelPipelineAgent />}
       {mode === 'vad' && <VADVoiceAgent />}
       {mode === 'realtime' && <RealTimeVoiceAgent />}
       {mode === 'history' && <App />}

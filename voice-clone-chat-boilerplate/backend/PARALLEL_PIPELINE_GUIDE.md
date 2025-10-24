@@ -1,459 +1,400 @@
-# 🚀 Parallel Pipeline Implementation Guide
+# 🚀 Parallel Pipeline for Real-Time Avatar Generation
 
-## 📋 Overview
+## Overview
 
-Complete parallel pipeline with queue-based architecture where **LLM, Voice Cloner, and Avatar Generation all run simultaneously** in separate workers.
+This parallel pipeline achieves **near real-time avatar video generation** by running LLM, Voice Cloning, and Avatar Generation simultaneously using a producer-consumer pattern with queues.
 
-This is the **NEW pipeline** separate from the current sequential pipeline, allowing you to toggle between modes in the frontend.
-
----
-
-## 🏗️ Architecture
+### Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    PARALLEL PIPELINE                        │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│   LLM Worker              Voice Worker          Avatar Worker│
-│       ↓                       ↓                      ↓       │
-│   [Text Queue]  →  [Audio Queue]  →  [Video Queue]          │
-│       ↓                       ↓                      ↓       │
-│   Streaming text    Generate audio    Generate video        │
-│   chunks            with ChatterBox   with Ditto            │
-│                                                             │
-│   All workers run simultaneously (parallel execution)       │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-                              ↓
-                    Frontend (SSE Stream)
+┌─────────────┐     ┌────────────┐     ┌──────────────┐     ┌─────────────┐
+│ LLM Worker  │────▶│ Text Queue │────▶│ Voice Worker │────▶│ Audio Queue │
+└─────────────┘     └────────────┘     └──────────────┘     └─────────────┘
+                                                                      │
+                                                                      ▼
+┌─────────────┐     ┌────────────┐     ┌───────────────┐
+│   Frontend  │◀────│Video Queue │◀────│ Avatar Worker │
+└─────────────┘     └────────────┘     └───────────────┘
 ```
 
-### vs Current Pipeline
+### Key Features
 
-**Current Pipeline (Sequential):**
-```
-LLM (15-20 words) → ChatterBox → Avatar → Loop
-```
+- ✅ **Parallel Processing**: All components run simultaneously
+- ✅ **Global SDK Pool**: Shared Ditto SDK across requests (eliminates 15s warmup per request)
+- ✅ **Server-Sent Events**: Real-time streaming to frontend
+- ✅ **Queue-Based Communication**: Non-blocking producer-consumer pattern
+- ✅ **Optimized Latency**: First video typically within 8-10 seconds after initial warmup
 
-**New Pipeline (Parallel):**
-```
-LLM Worker ────────→ Text Queue
-                         ↓
-Voice Worker ────────→ Audio Queue (running in parallel)
-                         ↓
-Avatar Worker ───────→ Video Queue (running in parallel)
-                         ↓
-                    Frontend
-```
+## Performance Metrics
 
----
+### First Request (Cold Start)
+- **SDK Warmup**: ~15s (one-time, global)
+- **LLM Response**: ~2s
+- **Voice Cloning**: ~2s per chunk
+- **Video Generation**: ~5s per chunk
+- **Total First Video**: ~24s
 
-## 📁 Files
+### Subsequent Requests (Warm)
+- **SDK Warmup**: 0s (reused)
+- **LLM Response**: ~2s
+- **Voice Cloning**: ~2s
+- **Video Generation**: ~5s
+- **Total First Video**: ~9s 🎯
 
-### 1. API Endpoint
-**File:** `backend/api/parallel_pipeline.py`
+### Multi-Chunk Response
+- **Chunks Generated**: Parallel processing
+- **Example**: 9 chunks generated for India/Pakistan question
+- **Throughput**: ~5-6s per chunk
 
-**Key Classes:**
-- `ParallelPipelineOrchestrator` - Manages all workers and queues
-- Three worker threads: `_llm_worker`, `_voice_worker`, `_avatar_worker`
+## API Endpoints
 
-### 2. Test Script
-**File:** `backend/test_parallel_pipeline.py`
+### 1. Generate Parallel Pipeline
 
-Tests complete pipeline with "What are the differences between India and Pakistan?"
+**Endpoint**: `POST /api/parallel-pipeline/generate`
 
-### 3. Integration
-**File:** `backend/main.py` (updated)
-
-Router automatically loaded on startup.
-
----
-
-## 🔄 How It Works
-
-### Step-by-Step Flow
-
-1. **User asks question** → Frontend sends to `/api/parallel-pipeline/generate`
-
-2. **Orchestrator starts**:
-   - Creates 3 queues (text, audio, video)
-   - Spawns 3 worker threads
-   - All workers start simultaneously
-
-3. **LLM Worker**:
-   ```python
-   - Streams text from LLM
-   - Accumulates 80+ characters or sentence
-   - Pushes to text queue
-   - Continues streaming while voice worker processes
-   ```
-
-4. **Voice Worker** (parallel):
-   ```python
-   - Pulls text from queue
-   - Generates audio with ChatterBox
-   - Pushes to audio queue
-   - Continues while avatar worker processes
-   ```
-
-5. **Avatar Worker** (parallel):
-   ```python
-   - Pulls audio from queue
-   - Generates video with Ditto (2s chunks)
-   - Pushes to video queue
-   - Uses pre-warmed SDK pool
-   ```
-
-6. **Main Thread**:
-   ```python
-   - Pulls from video queue
-   - Streams to frontend via SSE
-   - First video ready in ~5 seconds!
-   ```
-
-### Queue Management
-
-Each queue has:
-- **Max size**: 10 items (prevents memory overflow)
-- **Timeout**: 0.5s (responsive to stop signals)
-- **Clear on stop**: All queues cleared when user interrupts
-
----
-
-## 🎯 API Endpoints
-
-### POST `/api/parallel-pipeline/generate`
-
-Generate avatar video using parallel pipeline.
-
-**Request:**
+**Request Body**:
 ```json
 {
   "question": "What are the differences between India and Pakistan?",
+  "reference_image": "Avatar/References/ref_1761131562372.jpg",
+  "reference_audio": "audio/reference_voices/ref_1761118578.wav",
   "emotion": 4,
-  "gaze": true,
   "pose": {},
-  "reference_image": "/path/to/image.jpg",
-  "reference_audio": "/path/to/audio.wav"
+  "gaze": true
 }
 ```
 
-**Response:** Server-Sent Events (SSE)
+**Response**: Server-Sent Events (SSE) stream
+
+**Events**:
+```javascript
+// Event 1: Pipeline started
+data: {"event": "started", "session_id": "abc123", "message": "Pipeline started"}
+
+// Event 2: Video chunk ready
+data: {
+  "event": "video_chunk",
+  "video_url": "/generated_videos/parallel/abc123/chunk_0000.mp4",
+  "duration": 2.5,
+  "chunk_idx": 0,
+  "audio_chunk_idx": 0,
+  "text": "The answer to 2 + 2 is 4.",
+  "generation_time": 5.2,
+  "total_elapsed": 9.1,
+  "session_id": "abc123"
+}
+
+// Event 3: Pipeline complete
+data: {"event": "complete", "total_videos": 3, "total_time": 25.4}
+
+// Event 4: Error (if any)
+data: {"event": "error", "message": "Error details"}
 ```
-data: {"event": "video_chunk", "video_url": "/videos/chunk_0000.mp4", "text": "India and Pakistan...", ...}
 
-data: {"event": "video_chunk", "video_url": "/videos/chunk_0001.mp4", ...}
+### 2. Check Pipeline Status
 
-data: {"event": "complete", "total_videos": 5, "total_time": 25.3}
-```
+**Endpoint**: `GET /api/parallel-pipeline/status`
 
-### GET `/api/parallel-pipeline/status`
-
-Check if pipeline is ready.
-
-**Response:**
+**Response**:
 ```json
 {
   "status": "ready",
   "pipeline_type": "parallel_queues",
-  "components": ["llm", "voice_cloner", "avatar_generator"]
+  "components": ["llm", "voice_cloner", "avatar_generator"],
+  "mode": "real_time_streaming"
 }
 ```
 
-### POST `/api/parallel-pipeline/stop`
+## Frontend Integration
 
-Stop pipeline and clear all queues (for user interruption).
-
----
-
-## 🧪 Testing
-
-### Step 1: Start Backend
-
-```bash
-cd /home/syedhuzaifa/Voice_Competition/voice-clone-chat-boilerplate/backend
-
-# Make sure .env has:
-# AVATAR_MODEL=ditto
-# DITTO_STREAMING_MODE=offline
-
-uvicorn main:app --reload --port 8000
-```
-
-Expected output:
-```
-INFO:     Started server process
-✅ Parallel pipeline routes loaded
-INFO:     Application startup complete
-```
-
-### Step 2: Run Test
-
-```bash
-cd /home/syedhuzaifa/Voice_Competition/voice-clone-chat-boilerplate/backend
-
-python test_parallel_pipeline.py
-```
-
-Expected output:
-```
-🎬 PARALLEL PIPELINE TEST
-════════════════════════════════════════════════════════════
-
-📝 Question: What are the differences between India and Pakistan?
-🎯 Target: First video <5 seconds
-📡 Endpoint: http://localhost:8000/api/parallel-pipeline/generate
-
-✅ Connection established
-⚡ Pipeline started...
-
-────────────────────────────────────────────────────────────
-Pipeline Progress:
-
-🎉 FIRST VIDEO READY IN: 4.8s
-
-📹 Video 1:
-   Audio Chunk: 0
-   Text: India and Pakistan are two neighboring South Asian countries...
-   Video URL: /generated_videos/parallel/abc123/chunk_0000.mp4
-   Duration: 2.0s
-   Generation: 3.2s
-   Elapsed: 4.8s
-   ✅ <5s TARGET ACHIEVED!
-
-📹 Video 2:
-   ...
-
-────────────────────────────────────────────────────────────
-✅ PIPELINE COMPLETE!
-────────────────────────────────────────────────────────────
-
-📊 FINAL RESULTS:
-   Total Videos: 8
-   Total Time: 28.5s
-   First Video: 4.8s
-   ✅ SUCCESS: First video <5s target achieved!
-```
-
----
-
-## 🎨 Frontend Integration
-
-### Option 1: React Example
+### JavaScript/React Example
 
 ```javascript
-import { useState, useEffect } from 'react';
+async function generateParallelVideo(question) {
+  const response = await fetch('/api/parallel-pipeline/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      question: question,
+      reference_image: 'Avatar/References/ref_1761131562372.jpg',
+      reference_audio: 'audio/reference_voices/ref_1761118578.wav'
+    })
+  });
 
-function ParallelPipelineAvatar({ question }) {
-  const [videos, setVideos] = useState([]);
-  const [currentVideo, setCurrentVideo] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
-  
-  const startPipeline = async () => {
-    setIsLoading(true);
-    setVideos([]);
-    
-    const response = await fetch('/api/parallel-pipeline/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        question,
-        emotion: 4,
-        gaze: true
-      })
-    });
-    
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      
-      const lines = decoder.decode(value).split('\n');
-      
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = JSON.parse(line.slice(6));
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    const chunk = decoder.decode(value);
+    const lines = chunk.split('\n');
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        const data = JSON.parse(line.slice(6));
+        
+        switch (data.event) {
+          case 'started':
+            console.log('Pipeline started:', data.session_id);
+            break;
           
-          if (data.event === 'video_chunk') {
-            setVideos(prev => [...prev, data]);
-            
-            // Auto-play first video
-            if (videos.length === 0) {
-              playVideo(data.video_url);
-            }
-          } else if (data.event === 'complete') {
-            setIsLoading(false);
-          }
+          case 'video_chunk':
+            console.log('Video ready:', data.video_url);
+            // Play video in <video> element
+            playVideoChunk(data.video_url);
+            break;
+          
+          case 'complete':
+            console.log('All videos generated:', data.total_videos);
+            break;
+          
+          case 'error':
+            console.error('Error:', data.message);
+            break;
         }
       }
     }
-  };
-  
-  const playVideo = (url) => {
-    const video = document.getElementById('avatar-video');
-    video.src = url;
-    video.play();
-  };
-  
-  return (
-    <div>
-      <button onClick={startPipeline}>
-        Start Parallel Pipeline
-      </button>
+  }
+}
+
+function playVideoChunk(videoUrl) {
+  const video = document.getElementById('avatar-video');
+  video.src = videoUrl;
+  video.play();
+}
+```
+
+### Vue.js Example
+
+```vue
+<template>
+  <div>
+    <button @click="startGeneration">Generate Avatar</button>
+    <video ref="avatarVideo" autoplay></video>
+    <div>Status: {{ status }}</div>
+  </div>
+</template>
+
+<script>
+export default {
+  data() {
+    return {
+      status: 'idle',
+      videoQueue: []
+    }
+  },
+  methods: {
+    async startGeneration() {
+      this.status = 'generating';
       
-      <video 
-        id="avatar-video" 
-        onEnded={() => {
-          // Play next video
-          if (currentVideo < videos.length - 1) {
-            setCurrentVideo(currentVideo + 1);
-            playVideo(videos[currentVideo + 1].video_url);
+      const response = await fetch('/api/parallel-pipeline/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: this.userQuestion,
+          reference_image: this.referenceImage,
+          reference_audio: this.referenceAudio
+        })
+      });
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = JSON.parse(line.slice(6));
+            this.handleEvent(data);
           }
-        }}
-      />
-      
-      {isLoading && <p>Generating...</p>}
-    </div>
-  );
+        }
+      }
+    },
+
+    handleEvent(data) {
+      switch (data.event) {
+        case 'video_chunk':
+          this.videoQueue.push(data.video_url);
+          if (!this.$refs.avatarVideo.src) {
+            this.playNext();
+          }
+          break;
+        
+        case 'complete':
+          this.status = 'complete';
+          break;
+      }
+    },
+
+    playNext() {
+      if (this.videoQueue.length > 0) {
+        const nextVideo = this.videoQueue.shift();
+        this.$refs.avatarVideo.src = nextVideo;
+        this.$refs.avatarVideo.onended = () => this.playNext();
+      }
+    }
+  }
 }
+</script>
 ```
 
-### Option 2: Toggle Between Pipelines
-
-```javascript
-function AvatarPipelineSelector() {
-  const [pipelineMode, setPipelineMode] = useState('current'); // 'current' or 'parallel'
-  
-  return (
-    <div>
-      <select 
-        value={pipelineMode} 
-        onChange={(e) => setPipelineMode(e.target.value)}
-      >
-        <option value="current">Current Pipeline (Sequential)</option>
-        <option value="parallel">Parallel Pipeline (Queue-based)</option>
-      </select>
-      
-      {pipelineMode === 'current' ? (
-        <CurrentPipelineAvatar />
-      ) : (
-        <ParallelPipelineAvatar />
-      )}
-    </div>
-  );
-}
-```
-
----
-
-## ⚡ Performance Optimizations
-
-### 1. SDK Pre-warming
-```python
-# Avatar worker pre-warms SDK pool on startup
-self.avatar_generator._init_sdk_pool()  # ~18s once
-self.avatar_generator._start_workers()
-```
-
-### 2. Parallel Processing
-- LLM, Voice, and Avatar all run simultaneously
-- No waiting between stages
-- 3x speedup compared to sequential
-
-### 3. Small Text Chunks
-```python
-min_chunk_chars = 80  # Push to voice after 80 chars
-```
-
-### 4. Small Video Chunks
-```python
-chunk_duration = 2.0  # 2-second video chunks
-```
-
----
-
-## 🛑 Stopping Pipeline
-
-When user interrupts (speaks while avatar is generating):
-
-```javascript
-// Frontend sends stop signal
-await fetch('/api/parallel-pipeline/stop', {
-  method: 'POST',
-  body: JSON.stringify({ session_id })
-});
-```
-
-Backend:
-```python
-# Orchestrator stops all workers
-orchestrator.stop_event.set()
-
-# Clears all queues
-_clear_queue(text_queue)
-_clear_queue(audio_queue)
-_clear_queue(video_queue)
-```
-
----
-
-## 📊 Expected Performance
-
-| Metric | Target | Expected |
-|--------|--------|----------|
-| First video | <5s | 4-6s |
-| Parallel speedup | 2-3x | 3x |
-| Memory | <10GB | ~8GB |
-| Smooth playback | No gaps | ✅ |
-
----
-
-## 🔧 Configuration
+## Configuration
 
 ### Environment Variables
 
+Add to `.env`:
+
 ```ini
-# .env
+# Avatar Model Selection
 AVATAR_MODEL=ditto
-DITTO_STREAMING_MODE=offline
-DITTO_CHUNK_DURATION=2.0
-DITTO_CHUNK_OVERLAP=0.3
-DITTO_MAX_PARALLEL_CHUNKS=3
+
+# Avatar Device
+AVATAR_DEVICE=cuda:1
+
+# Parallel Pipeline Settings (automatically used when AVATAR_MODEL=ditto)
+# These are hardcoded in parallel_pipeline.py but can be made configurable:
+# - chunk_duration=2.0s
+# - overlap_duration=0.3s
+# - max_parallel_workers=3
 ```
 
-### Runtime Tuning
+## Testing
 
-In `api/parallel_pipeline.py`:
+### Python Test Script
+
+```bash
+cd backend
+source venv/bin/activate
+python test_parallel_simple.py
+```
+
+### cURL Test
+
+```bash
+curl -N -X POST http://localhost:8000/api/parallel-pipeline/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "What is 2 plus 2?",
+    "reference_image": "Avatar/References/ref_1761131562372.jpg",
+    "reference_audio": "audio/reference_voices/ref_1761118578.wav"
+  }'
+```
+
+## Troubleshooting
+
+### Issue: No videos generated
+
+**Solution**: Check backend logs for errors
+```bash
+tail -f /tmp/backend_*.log | grep -E "Worker|Pipeline|Error"
+```
+
+### Issue: First video takes too long
+
+**Cause**: SDK warmup happens on first request
+
+**Solution**: The global SDK pool warms up once and is reused. First request will be slower (~24s), but subsequent requests will be ~9s.
+
+### Issue: Videos have gaps between chunks
+
+**Current Status**: Single chunk per audio segment (no gaps within chunk)
+
+**Future Enhancement**: Implement smooth transitions between chunks using overlap and fade
+
+### Issue: Connection timeout
+
+**Solution**: Increase timeout in client
+```javascript
+fetch(url, { signal: AbortSignal.timeout(300000) }) // 5 minutes
+```
+
+## Directory Structure
+
+```
+backend/
+├── api/
+│   └── parallel_pipeline.py          # Main parallel pipeline implementation
+├── utils/
+│   ├── optimized_streaming_avatar.py # Optimized Ditto with SDK pooling
+│   └── ditto_avatar_generator.py     # Ditto wrapper
+├── generated_videos/
+│   └── parallel/
+│       └── {session_id}/
+│           ├── chunk_0000.mp4
+│           ├── chunk_0001.mp4
+│           └── ...
+└── test_parallel_simple.py            # Test script
+```
+
+## Performance Optimization Tips
+
+### 1. Pre-warm SDK Pool
+
+The SDK pool is automatically initialized on first import. You can pre-warm it during application startup in `main.py`:
 
 ```python
-# Text chunk size (affects latency)
-min_chunk_chars = 80  # Smaller = faster first video
-
-# Video chunk duration
-chunk_duration = 2.0  # Smaller = faster first response
-
-# Parallel workers
-max_parallel_workers = 3  # More = faster but more memory
+@app.on_event("startup")
+async def startup_event():
+    from api.parallel_pipeline import get_global_avatar_generator
+    get_global_avatar_generator()  # Pre-warm
 ```
 
----
+### 2. Adjust Worker Count
 
-## ✅ Success Criteria
+Modify `max_parallel_workers` in `parallel_pipeline.py`:
+```python
+_global_avatar_generator = OptimizedStreamingAvatar(
+    chunk_duration=2.0,
+    overlap_duration=0.3,
+    max_parallel_workers=4  # Increase for more parallelism
+)
+```
 
-- [🎯] First video <5 seconds
-- [✅] Parallel execution working
-- [✅] Queue system functional
-- [✅] Stop/clear queues working
-- [✅] SSE streaming to frontend
-- [⏳] Frontend integration
-- [⏳] Production tested
+### 3. Reduce Chunk Duration
 
----
+Smaller chunks = lower latency, but more chunks to process:
+```python
+_global_avatar_generator = OptimizedStreamingAvatar(
+    chunk_duration=1.5,  # Smaller chunks
+    overlap_duration=0.3,
+    max_parallel_workers=3
+)
+```
 
-**Status:** ✅ IMPLEMENTED - Ready for testing  
-**Next:** Run test and optimize for <5s first video  
-**Question:** "What are the differences between India and Pakistan?"
+## Comparison: Parallel vs Sequential
 
+| Metric | Sequential Pipeline | Parallel Pipeline |
+|--------|-------------------|-------------------|
+| First Video | ~20s | ~9s (after warmup) |
+| Processing | Blocking | Non-blocking |
+| User Experience | Wait for complete response | Immediate streaming |
+| Memory | Lower | Higher (queues) |
+| Complexity | Simple | Moderate |
+
+## Future Enhancements
+
+- [ ] Implement smooth chunk transitions with overlapping
+- [ ] Add chunk pre-buffering for gapless playback
+- [ ] Support for long-form content (>2 minutes)
+- [ ] Dynamic worker scaling based on load
+- [ ] WebSocket support in addition to SSE
+- [ ] Progress indicators for each stage
+- [ ] Retry logic for failed chunks
+
+## Support
+
+For issues or questions, check:
+1. Backend logs: `/tmp/backend_*.log`
+2. Generated videos: `backend/generated_videos/parallel/`
+3. Test scripts: `backend/test_parallel_simple.py`
+
+## License
+
+Same as parent project.

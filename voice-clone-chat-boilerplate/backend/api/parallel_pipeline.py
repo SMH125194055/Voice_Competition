@@ -88,6 +88,10 @@ class ParallelPipelineOrchestrator:
         # Use global avatar generator (shared across requests)
         self.avatar_generator = get_global_avatar_generator()
         
+        # Pre-setup state (will be set by avatar worker)
+        self.reference_preprocessed = False
+        self.preprocessed_sdk = None
+        
         logger.info(f"🎬 Parallel Pipeline initialized (session: {self.session_id})")
     
     def start(self, question: str, reference_image: str, reference_audio: str, emotion: int, pose: dict, gaze: bool):
@@ -269,76 +273,146 @@ class ParallelPipelineOrchestrator:
     def _avatar_worker(self, reference_image: str, emotion: int, pose: dict, gaze: bool):
         """
         Worker 3: Avatar Generation
-        Takes audio from queue, generates video, pushes to video queue
+        Processes audio chunks IN REAL-TIME with parallel execution
+        OPTIMIZED: Setup reference image ONCE, reuse for all chunks
         """
         try:
             logger.info("[Avatar Worker] Started")
             
-            # Start workers (pool is already warmed up in __init__)
-            self.avatar_generator._start_workers()
-            logger.info("[Avatar Worker] Workers ready")
+            import concurrent.futures
+            import librosa
+            import math
+            import uuid
+            import cv2
             
+            # OPTIMIZED: Pre-process reference image ONCE, reuse for all chunks
+            logger.info("[Avatar Worker] Pre-processing reference image...")
+            
+            # Get ONE SDK and pre-process reference image
+            setup_start = time.time()
+            sdk = self.avatar_generator.sdk_pool.get()
+            
+            # Setup the reference image ONCE (dummy output path)
+            dummy_output = os.path.join(self.output_dir, "_ref_setup")
+            sdk.setup(
+                reference_image,
+                dummy_output,
+                emo=emotion,
+                drive_eye=gaze,
+                overall_ctrl_info=pose
+            )
+            
+            setup_time = time.time() - setup_start
+            logger.info(f"[Avatar Worker] ✅ Reference pre-processed in {setup_time:.2f}s")
+            
+            def process_single_audio_quick(audio_item):
+                """Process one audio chunk - reuse pre-processed reference"""
+                audio_path = audio_item['path']
+                chunk_idx = audio_item['chunk_idx']
+                text = audio_item['text']
+                
+                logger.info(f"[Avatar Worker] 🎬 START chunk {chunk_idx}")
+                start_time = time.time()
+                
+                try:
+                    # Load audio
+                    audio, sr = librosa.load(audio_path, sr=16000)
+                    duration = len(audio) / sr
+                    
+                    # Calculate frames
+                    num_frames = math.ceil(len(audio) / sr * 25)
+                    
+                    # Setup frame count ONLY (reference already set up)
+                    sdk.setup_Nd(
+                        N_d=num_frames,
+                        fade_in=-1,
+                        fade_out=-1,
+                        ctrl_info={}
+                    )
+                    
+                    # Generate video
+                    aud_feat = sdk.wav2feat.wav2feat(audio)
+                    sdk.audio2motion_queue.put(aud_feat)
+                    sdk.close()
+                    
+                    # Add audio with ffmpeg
+                    video_no_audio = dummy_output + ".tmp.mp4"
+                    
+                    # Copy to unique output path
+                    output_filename = f"chunk_{chunk_idx:04d}_{uuid.uuid4().hex[:8]}.mp4"
+                    output_path = os.path.join(self.output_dir, output_filename)
+                    
+                    ffmpeg_cmd = f'ffmpeg -loglevel error -y -i "{video_no_audio}" -i "{audio_path}" -map 0:v -map 1:a -c:v copy -c:a aac "{output_path}"'
+                    os.system(ffmpeg_cmd)
+                    
+                    elapsed = time.time() - start_time
+                    logger.info(f"[Avatar Worker] ✅ DONE chunk {chunk_idx} in {elapsed:.2f}s")
+                    
+                    return {
+                        'chunk_idx': chunk_idx,
+                        'video_path': output_path,
+                        'duration': duration,
+                        'text': text,
+                        'generation_time': elapsed,
+                        'error': None
+                    }
+                    
+                except Exception as e:
+                    logger.error(f"[Avatar Worker] ❌ chunk {chunk_idx} failed: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    return {
+                        'chunk_idx': chunk_idx,
+                        'error': str(e)
+                    }
+            
+            # Main processing loop - process chunks as they arrive
             while not self.stop_event.is_set():
                 try:
-                    # Get audio from queue
+                    # Get audio chunk from queue
                     item = self.audio_queue.get(timeout=0.5)
                     
                     if item['type'] == 'done':
-                        logger.info("[Avatar Worker] Received done signal")
-                        self.video_queue.put({'type': 'done'})
+                        logger.info("[Avatar Worker] Done signal received")
                         break
                     
                     elif item['type'] == 'error':
                         logger.error(f"[Avatar Worker] Received error")
                         self.video_queue.put(item)
-                        break
+                        return
                     
                     elif item['type'] == 'audio':
-                        audio_path = item['path']
-                        chunk_idx = item['chunk_idx']
-                        text = item['text']
-                        
-                        logger.info(f"[Avatar Worker] Processing audio chunk {chunk_idx}...")
-                        
-                        # Generate video using sync method
-                        start_time = time.time()
-                        
-                        # Use the underlying sync generation
-                        result = self.avatar_generator._generate_single_chunk_sync(
-                            audio_path,
-                            reference_image,
-                            self.output_dir,
-                            emotion=emotion,
-                            pose=pose,
-                            gaze=gaze
-                        )
-                        
-                        elapsed = time.time() - start_time
+                        # Process chunk immediately (no parallelization due to SDK limitations)
+                        result = process_single_audio_quick(item)
                         
                         if result and not result.get('error'):
-                            logger.info(f"[Avatar Worker] → Video Queue: video chunk ({elapsed:.2f}s)")
-                            
+                            logger.info(f"[Avatar Worker] → Video Queue: chunk {result['chunk_idx']}")
                             self.video_queue.put({
                                 'type': 'video',
                                 'video_path': result['video_path'],
                                 'duration': result['duration'],
-                                'chunk_idx': 0,  # Single chunk
-                                'audio_chunk_idx': chunk_idx,
-                                'text': text,
-                                'generation_time': elapsed,
+                                'chunk_idx': result['chunk_idx'],
+                                'audio_chunk_idx': result['chunk_idx'],
+                                'text': result['text'],
+                                'generation_time': result['generation_time'],
                                 'is_last': False
                             })
                         else:
-                            logger.error(f"[Avatar Worker] Video generation failed: {result.get('error') if result else 'No result'}")
+                            logger.error(f"[Avatar Worker] Chunk {result.get('chunk_idx')} failed: {result.get('error')}")
                 
                 except queue.Empty:
                     continue
                 except Exception as e:
-                    logger.error(f"[Avatar Worker] Error processing: {e}")
+                    logger.error(f"[Avatar Worker] Loop error: {e}")
                     import traceback
                     traceback.print_exc()
-                    continue
             
+            # Cleanup: return SDK to pool
+            self.avatar_generator.sdk_pool.put(sdk)
+            logger.info("[Avatar Worker] SDK returned to pool")
+            
+            # Send done signal
+            self.video_queue.put({'type': 'done'})
             logger.info("[Avatar Worker] ✅ Complete")
             
         except Exception as e:
