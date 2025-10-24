@@ -254,3 +254,5 @@ This would give you **~2-3 second generation time** with decent quality, and use
 This will reduce generation time from **~4-5s → ~2-3s** per chunk!
 
 
+
+

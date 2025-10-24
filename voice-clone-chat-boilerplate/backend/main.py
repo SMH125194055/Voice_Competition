@@ -173,6 +173,22 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Include streaming avatar router
+try:
+    from api.streaming_avatar import router as streaming_avatar_router
+    app.include_router(streaming_avatar_router)
+    logger.info("✅ Streaming avatar routes loaded")
+except Exception as e:
+    logger.warning(f"⚠️  Streaming avatar routes not loaded: {e}")
+
+# Include parallel pipeline router (NEW - Queue-based parallel processing)
+try:
+    from api.parallel_pipeline import router as parallel_pipeline_router
+    app.include_router(parallel_pipeline_router)
+    logger.info("✅ Parallel pipeline routes loaded")
+except Exception as e:
+    logger.warning(f"⚠️  Parallel pipeline routes not loaded: {e}")
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
